@@ -21,7 +21,7 @@
 //
 // read one word from buffer and advance current position pointer
 //
-static uint16_t read_word(void **pos)
+static uint16_t read_word(const uint8_t **pos)
 {
     uint16_t val = ntohs(*((uint16_t *) *pos));
     *pos += 2;
@@ -31,7 +31,7 @@ static uint16_t read_word(void **pos)
 //
 // read one dword from buffer and advance current position pointer
 //
-static uint32_t read_dword(void **pos)
+static uint32_t read_dword(const uint8_t **pos)
 {
     uint32_t val = ntohl(*((uint32_t *) *pos));
     *pos += 4;
@@ -42,7 +42,7 @@ static uint32_t read_dword(void **pos)
 //
 // write opcode = series of bytes into buffer and advance current position pointer
 //
-static void write_opcode(char *opcode, size_t len, void **pos)
+static void write_opcode(const char *opcode, size_t len, uint8_t **pos)
 {
     while (len-- > 0) {
         *((char *) *pos) = *opcode;
@@ -55,7 +55,7 @@ static void write_opcode(char *opcode, size_t len, void **pos)
 //
 // write one byte into buffer and advance current position pointer
 //
-static void write_byte(uint8_t val, void **pos)
+static void write_byte(uint8_t val, uint8_t **pos)
 {
     *((uint8_t *) *pos) = val;
     *pos += 1;
@@ -65,7 +65,7 @@ static void write_byte(uint8_t val, void **pos)
 //
 // write one dword into buffer and advance current position pointer
 //
-static void write_dword(uint32_t val, void **pos)
+static void write_dword(uint32_t val, uint8_t **pos)
 {
     *((uint32_t *) *pos) = val;
     *pos += 4;
@@ -82,13 +82,13 @@ static void write_dword(uint32_t val, void **pos)
 //     void     **inpos,           // current position in the input stream, will be updated
 //     void     **outpos           // current position in the output stream, will be updated
 // )
-typedef int (*opcode_handler_func_t)(uint16_t, void **, void**);
+typedef int (*opcode_handler_func_t)(uint16_t, const uint8_t **, uint8_t **);
 
 // TODO: check all 32-bit immediate adresses if they need to be fixed
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
-static int m68k_bcc(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint32_t offset;
     int      nbytes_used;
@@ -137,28 +137,28 @@ static int m68k_bcc(uint16_t m68k_opcode, void **inpos, void **outpos)
     return nbytes_used;
 }
 
-static int m68k_bra_8(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_bra_8(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "bra     $%x", temp_pc + make_int_8(g_cpu_ir));
 }
 
-static int m68k_clr_32(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_clr_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "clr.l   %s", get_ea_mode_str_32(g_cpu_ir));
 }
 
-static int m68k_jsr(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "jsr     %s", get_ea_mode_str_32(g_cpu_ir));
 //	SET_OPCODE_FLAGS(DASMFLAG_STEP_OVER);
 }
 
-static int m68k_lea(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_lea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "lea     %s, A%d", get_ea_mode_str_32(g_cpu_ir), (g_cpu_ir>>9)&7);
 }
 
-static int m68k_move_32(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_move_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	char* str = get_ea_mode_str_32(g_cpu_ir);
 //	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
@@ -166,40 +166,40 @@ static int m68k_move_32(uint16_t m68k_opcode, void **inpos, void **outpos)
 
 // move_8 and move_16 are not needed right now and are only here because they're referenced in the
 // code below that builds the opcode handler table.
-static int m68k_move_8(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_move_8(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	char* str = get_ea_mode_str_8(g_cpu_ir);
 //	sprintf(g_dasm_str, "move.b  %s, %s", str, get_ea_mode_str_8(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
 }
 
-static int m68k_move_16(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_move_16(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	char* str = get_ea_mode_str_16(g_cpu_ir);
 //	sprintf(g_dasm_str, "move.w  %s, %s", str, get_ea_mode_str_16(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
 }
 
-static int m68k_movea_32(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_movea_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "movea.l %s, A%d", get_ea_mode_str_32(g_cpu_ir), (g_cpu_ir>>9)&7);
 }
 
-static int m68k_moveq(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "moveq   #%s, D%d", make_signed_hex_str_8(g_cpu_ir), (g_cpu_ir>>9)&7);
 }
 
-static int m68k_rts(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "rts");
 //	SET_OPCODE_FLAGS(DASMFLAG_STEP_OUT);
 }
 
-static int m68k_subq_32(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "subq.l  #%d, %s", g_3bit_qdata_table[(g_cpu_ir>>9)&7], get_ea_mode_str_32(g_cpu_ir));
 }
 
-static int m68k_tst_32(uint16_t m68k_opcode, void **inpos, void **outpos)
+static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "tst.l   %s", get_ea_mode_str_32(g_cpu_ir));
 }
@@ -286,7 +286,7 @@ static bool valid_ea_mode(uint16_t opcode, uint16_t mask)
 //
 // translate a block of code from Motorola 680x0 to Intel x86-64
 //
-bool translate_code_block(void *inptr, void *outptr, int size)
+bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size)
 {
     uint16_t opcode;
     int      nbytes_used;
@@ -300,7 +300,7 @@ bool translate_code_block(void *inptr, void *outptr, int size)
         // default is NULL
         opcode_handler_tbl[opcode] = NULL;
         // search through opcode info table for a match
-        for (OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
+        for (const OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
             // match opcode mask and allowed effective address modes
             if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
                 // handle destination effective address modes for move instructions
@@ -347,7 +347,7 @@ int main()
     uint8_t *outbuf;
 
     // allocate buffer for translated code
-    if ((outbuf = mmap(NULL, MAX_CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
+    if ((outbuf = (uint8_t *) mmap(NULL, MAX_CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
         ERROR("could not create memory mapping for translated code: %s", strerror(errno));
         return -1;
     }
