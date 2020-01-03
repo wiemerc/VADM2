@@ -11,7 +11,7 @@ CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
 
 .PHONY: all clean
 
-all: vadm ptrace-test hello.bin
+all: vadm ptrace-test translate hello.bin
 
 clean:
 	rm -rf *.o *.dSYM vadm ptrace-test hello.bin
@@ -20,7 +20,12 @@ main.o: main.c vadm.h
 
 loader.o: loader.c vadm.h
 
-vadm: main.o loader.o
+translate.o: translate.c vadm.h
+
+translate: translate.c vadm.h
+	$(CC) $(CFLAGS) -DTEST -o $@ translate.c
+
+vadm: main.o loader.o translate.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 loop.o: loop.s
