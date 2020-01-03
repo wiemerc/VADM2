@@ -39,3 +39,6 @@ loop: loop.o
 
 %.bin: %.o
 	objcopy -O binary $< $@
+
+history:
+	git log --format="format:%h %ci %s"
