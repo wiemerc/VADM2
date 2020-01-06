@@ -16,11 +16,14 @@
 #include <sys/mman.h>
 
 #include "vadm.h"
+#include "translate.h"
 
 
 //
+// utility functions
+//
+
 // read one word from buffer and advance current position pointer
-//
 static uint16_t read_word(const uint8_t **pos)
 {
     uint16_t val = ntohs(*((uint16_t *) *pos));
@@ -28,9 +31,7 @@ static uint16_t read_word(const uint8_t **pos)
     return val;
 }
 
-//
 // read one dword from buffer and advance current position pointer
-//
 static uint32_t read_dword(const uint8_t **pos)
 {
     uint32_t val = ntohl(*((uint32_t *) *pos));
@@ -38,10 +39,7 @@ static uint32_t read_dword(const uint8_t **pos)
     return val;
 }
 
-
-//
 // write opcode = series of bytes into buffer and advance current position pointer
-//
 static void write_opcode(const char *opcode, size_t len, uint8_t **pos)
 {
     while (len-- > 0) {
@@ -51,20 +49,14 @@ static void write_opcode(const char *opcode, size_t len, uint8_t **pos)
     }
 }
 
-
-//
 // write one byte into buffer and advance current position pointer
-//
 static void write_byte(uint8_t val, uint8_t **pos)
 {
     *((uint8_t *) *pos) = val;
     *pos += 1;
 }
 
-
-//
 // write one dword into buffer and advance current position pointer
-//
 static void write_dword(uint32_t val, uint8_t **pos)
 {
     *((uint32_t *) *pos) = val;
@@ -78,13 +70,12 @@ static void write_dword(uint32_t val, uint8_t **pos)
 // All handlers have the following signature and return the number of bytes consumed, 
 // which can be 0, or -1 in case of of an error.
 // static int m68k_xxx(
-//     uint16_t m68k_opcode,       // opcode to decode
-//     void     **inpos,           // current position in the input stream, will be updated
-//     void     **outpos           // current position in the output stream, will be updated
+//     uint16_t      m68k_opcode,       // opcode to decode
+//     const uint8_t **inpos,           // current position in the input stream, will be updated
+//     uint8_t       **outpos           // current position in the output stream, will be updated
 // )
-typedef int (*opcode_handler_func_t)(uint16_t, const uint8_t **, uint8_t **);
 
-// TODO: check all 32-bit immediate adresses if they need to be fixed
+// TODO: fix all 32-bit immediate adresses
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
@@ -205,38 +196,6 @@ static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **ou
 }
 
 
-// opcode info table for the binary translation (copied from Musashi), with just
-// the 11 instructions which are used in the test program, needs to be sorted
-// by the number of set bits in mask in descending order to ensure the longest
-// match wins
-typedef struct
-{
-	opcode_handler_func_t opc_handler;    // handler function
-	uint16_t opc_mask;                    // mask on opcode
-	uint16_t opc_match;                   // what to match after masking
-	uint16_t opc_ea_mask;                 // allowed effective address modes
-} OpcodeInfo;
-
-static const OpcodeInfo opcode_info_tbl[] =
-{
-//   opcode handler      mask    match   effective address mask
-	{m68k_rts          , 0xffff, 0x4e75, 0x000},      // rts
-	{m68k_tst_32       , 0xffc0, 0x4a80, 0xbf8},      // tst.l
-	{m68k_clr_32       , 0xffc0, 0x4280, 0xbf8},      // clr.l
-	{m68k_jsr          , 0xffc0, 0x4e80, 0x27b},      // jsr
-	{m68k_bra_8        , 0xff00, 0x6000, 0x000},      // bra.s
-	{m68k_subq_32      , 0xf1c0, 0x5180, 0xff8},      // subq.l
-	{m68k_movea_32     , 0xf1c0, 0x2040, 0xfff},      // movea.l
-	{m68k_lea          , 0xf1c0, 0x41c0, 0x27b},      // lea
-	{m68k_moveq        , 0xf100, 0x7000, 0x000},      // moveq.l
-	{m68k_bcc          , 0xf000, 0x6000, 0x000},      // beq.*
-	{m68k_move_8       , 0xf000, 0x1000, 0xbff},      // move.b
-	{m68k_move_16      , 0xf000, 0x3000, 0xfff},      // move.w
-	{m68k_move_32      , 0xf000, 0x2000, 0xfff},      // move.l
-	{NULL, 0, 0, 0}
-};
-
-
 //
 // check if opcode is using a valid effective address mode (code is copied straight from Musashi)
 //
@@ -343,19 +302,20 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size)
 #if TEST
 int main()
 {
-    uint8_t inbuf[6] = {0x66, 0xff, 0xde, 0xad, 0xbe, 0xef};
-    uint8_t *outbuf;
+    uint8_t buffer[16];
+//    void *hunk_addresses[] = {0x1800C0DE, 0x1800DADA, 0x18000B55};
 
-    // allocate buffer for translated code
-    if ((outbuf = (uint8_t *) mmap(NULL, MAX_CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
-        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
-        return -1;
+    // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
+    for (unsigned int i = 0; i < sizeof(testcase_tbl) / MAX_OPCODE_SIZE / 2; i++) {
+        // start with the outpuf buffer set to a fixed value
+        memset(buffer, 0x55, 16);
+        translate_code_block(&testcase_tbl[i][0][1], buffer, testcase_tbl[i][0][0]);
+        if (memcmp(&testcase_tbl[i][1][1], buffer, testcase_tbl[i][1][0]) == 0) {
+            INFO("test case #%d passed", i);
+        }
+        else {
+            ERROR("test case #%d failed", i);
+        }
     }
-
-    // translate code
-    if (translate_code_block(inbuf, outbuf, 2))
-        return 0;
-    else
-        return -1;
 }
 #endif

@@ -20,9 +20,9 @@ main.o: main.c vadm.h
 
 loader.o: loader.c vadm.h
 
-translate.o: translate.c vadm.h
+translate.o: translate.c translate.h
 
-translate: translate.c vadm.h
+translate: translate.c translate.h
 	$(CC) $(CFLAGS) -DTEST -o $@ translate.c
 
 vadm: main.o loader.o translate.o
