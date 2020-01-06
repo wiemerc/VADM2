@@ -50,9 +50,7 @@ static void sigsegv(int signum)
 //
 // load the program image
 //
-// returns: 0 if successful, -1 otherwise
-//
-int load_program(
+bool load_program(
     const char *fname,              // IN: name of the program image
     void       **hunk_addresses     // OUT: table with start addresses of the hunks (actually the respective
                                     //      blocks (HUNK_CODE, HUNK_DATA and HUNK_BSS) inside the 3 hunks)
@@ -66,7 +64,7 @@ int load_program(
     sigemptyset(&new_act.sa_mask);
     if (sigaction(SIGSEGV, &new_act, &old_act) == -1) {
         ERROR("failed to install signal handler: %s", strerror(errno));
-        return -1;
+        return false;
     }
 
     // map whole image into memory
@@ -74,17 +72,17 @@ int load_program(
     int fd;
     if ((fd = open(fname, O_RDONLY)) == -1) {
         ERROR("could not open file: %s", strerror(errno));
-        return -1;
+        return false;
     }
     struct stat stat_info;
     if (fstat(fd, &stat_info) == -1) {
         ERROR("could not get file status: %s", strerror(errno));
-        return -1;
+        return false;
     }
     void  *sof, *eof;                   // start-of-file and end-of-file pointers
     if ((sof = mmap(NULL, stat_info.st_size, PROT_READ, MAP_PRIVATE, fd, 0)) == MAP_FAILED) {
         ERROR("could not memory-map file: %s", strerror(errno));
-        return -1;
+        return false;
     }
     eof = ((uint8_t *) sof) + stat_info.st_size;
     DEBUG("image mapped at address %p", sof);
@@ -102,14 +100,14 @@ int load_program(
                 DEBUG("block type is HUNK_HEADER");
                 if (read_dword(&pos) != 0) {
                     ERROR("executables that specify resident libraries in header are not supported");
-                    return -1;
+                    return false;
                 }
                 read_dword(&pos);       // skip total number of hunks (including resident libraries and overlay hunks)
                 uint32_t first_hnum = read_dword(&pos);
                 uint32_t last_hnum = read_dword(&pos);
                 if ((last_hnum - first_hnum + 1) > MAX_HUNKS) {
                     ERROR("executables with more than %d hunks are not supported", MAX_HUNKS);
-                    return -1;
+                    return false;
                 }
 
                 // create memory mapping for all hunks with their maximum size
@@ -123,7 +121,7 @@ int load_program(
                 void *hunk_addr;
                 if ((hunk_addr = mmap(NULL, MAX_HUNKS * MAX_HUNK_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
                     ERROR("could not create memory mapping for hunks: %s", strerror(errno));
-                    return -1;
+                    return false;
                 }
 
                 // read sizes of the HUNK_CODE, HUNK_DATA and HUNK_BSS blocks and store pointers
@@ -162,7 +160,7 @@ int load_program(
                     uint32_t ref_hnum = read_dword(&pos);
                     if (ref_hnum > last_hnum) {
                         ERROR("relocations referencing hunk #%d found while last hunk in executable is %d", ref_hnum, last_hnum);
-                        return -1;
+                        return false;
                     }
 
                     for (uint32_t i = 0; i < npos_to_fix; i++) {
@@ -178,7 +176,7 @@ int load_program(
                         uint32_t offset = ntohl(*((uint32_t *) (hunk_addresses[hunk_num] + pos_to_fix)));
                         if ((offset & 0xc0000000) != 0) {
                             ERROR("offset at position %d is larger than 0x3fffffff - cannot apply relocation", pos_to_fix);
-                            return -1;
+                            return false;
                         }
                         offset |= ref_hnum << 30;
                         *((uint32_t *) (hunk_addresses[hunk_num] + pos_to_fix)) = htonl(offset);
@@ -207,14 +205,14 @@ int load_program(
 
             default:
                 ERROR("unknown block type %d", block_type);
-                return -1;
+                return false;
         }
     }
 
     // restore previous signal handler
     if (sigaction(SIGSEGV, &old_act, NULL) == -1) {
         ERROR("failed to restore signal handler: %s", strerror(errno));
-        return -1;
+        return false;
     }
-    return 0;
+    return true;
 }
