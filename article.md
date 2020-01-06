@@ -20,6 +20,7 @@ Wahrscheinlich bessere Alternative: Keystone => http://www.keystone-engine.org/d
                 Oder vielleicht die System Calls im Kind-Prozess mit ptrace() tracen?
 13.12.2019      C-Version funktioniert
 25.12.2019      Loader nach von C++ nach C portiert und angepasst
+03.01.2020      Erste Instruktion (BCC) übersetzt
 
 
 ## Links
