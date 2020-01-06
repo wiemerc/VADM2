@@ -42,3 +42,6 @@ loop: loop.o
 
 history:
 	git log --format="format:%h %ci %s"
+
+tests: translate
+	./translate
