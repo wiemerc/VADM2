@@ -6,6 +6,7 @@
 // 
 
 
+#include <netinet/in.h>         // for ntohs() and ntohl()
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -39,16 +40,6 @@ static uint32_t read_dword(const uint8_t **pos)
     return val;
 }
 
-// write opcode = series of bytes into buffer and advance current position pointer
-static void write_opcode(const char *opcode, size_t len, uint8_t **pos)
-{
-    while (len-- > 0) {
-        *((char *) *pos) = *opcode;
-        ++opcode;
-        ++(*pos);
-    }
-}
-
 // write one byte into buffer and advance current position pointer
 static void write_byte(uint8_t val, uint8_t **pos)
 {
@@ -76,16 +67,16 @@ static void write_dword(uint32_t val, uint8_t **pos)
 // )
 
 // TODO: fix all 32-bit immediate adresses
+// TODO: handle address AbsExecBase (0x0000004)
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    uint32_t offset;
+    uint32_t offset = m68k_opcode & 0x00ff;
     int      nbytes_used;
 
     DEBUG("decoding instruction BCC");
-    offset = m68k_opcode & 0x00ff;
     switch (offset) {
         // TODO: check if we need to add / subtract the length of the current instruction
         case 0x0000:
@@ -106,16 +97,20 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
         case 0x0600:
             DEBUG("BNE => JNE");
             if (offset <= 0xff)
-                write_opcode("\x75", 1, outpos);
-            else
-                write_opcode("\x0f\x85", 2, outpos);
+                write_byte(0x75, outpos);
+            else {
+                write_byte(0x0f, outpos);
+                write_byte(0x85, outpos);
+            }
             break;
         case 0x0700:
             DEBUG("BEQ => JE");
             if (offset <= 0xff)
-                write_opcode("\x74", 1, outpos);
-            else
-                write_opcode("\x0f\x84", 2, outpos);
+                write_byte(0x74, outpos);
+            else {
+                write_byte(0x0f, outpos);
+                write_byte(0x84, outpos);
+            }
             break;
         default:
             ERROR("condition 0x%x not supported", m68k_opcode & 0x0f00);
@@ -128,14 +123,66 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     return nbytes_used;
 }
 
-static int m68k_bra_8(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+// Motorola M68000 Family Programmer’s Reference Manual, page 4-119
+// Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
+// explanation of MOD-REG-R/M and SIB bytes: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x86.htm
+// explanation of REX prefix: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x64.htm
+static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "bra     $%x", temp_pc + make_int_8(g_cpu_ir));
+    uint16_t mode_reg = m68k_opcode & 0x003f;
+    uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
+    uint32_t addr;
+    int      nbytes_used;
+
+    DEBUG("decoding instruction MOVEA");
+    if ((m68k_opcode & 0xf000) != 0x2000) {
+        ERROR("only long operation supported");
+        return -1;
+    }
+    DEBUG("destination register is A%d", reg_num);
+    switch (mode_reg) {
+        case 0x0038:
+            DEBUG("MOVEA.L with 16-bit address");
+            addr = read_word(inpos);
+            nbytes_used = 2;
+            break;
+        case 0x0039:
+            DEBUG("MOVEA.L with 32-bit address");
+            addr = read_dword(inpos);
+            nbytes_used = 4;
+            break;
+        default:
+            ERROR("value 0x%02x for mode / register not supported", mode_reg);
+            return -1;
+    }
+
+    // opcode (0x8b) with REX prefix (0x48) to tell the processor to use a 64-bit operand (the address)
+    write_byte(0x48, outpos);
+    write_byte(0x8b, outpos);
+    // MOD-REG-R/M byte with register number
+    switch (reg_num) {
+        // In order to map A7 to RSP, we have to swap the register numbers of A4 and A7. With all
+        // other registers, we can use the same numbers as on the 680x0.
+        case 4:
+            write_byte(0x3c, outpos);
+            break;
+        case 7:
+            write_byte(0x24, outpos);
+            break;
+        default:
+            write_byte(0x04 | (reg_num << 3), outpos);
+
+    }
+    // SIB byte (specifying displacement only as addressing mode) and address
+    write_byte(0x25, outpos);
+    write_dword(addr, outpos);
+
+    return nbytes_used;
 }
 
-static int m68k_clr_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "clr.l   %s", get_ea_mode_str_32(g_cpu_ir));
+//	sprintf(g_dasm_str, "bra     $%x", temp_pc + make_int_8(g_cpu_ir));
 }
 
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
@@ -149,33 +196,12 @@ static int m68k_lea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 //	sprintf(g_dasm_str, "lea     %s, A%d", get_ea_mode_str_32(g_cpu_ir), (g_cpu_ir>>9)&7);
 }
 
-static int m68k_move_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
-//	char* str = get_ea_mode_str_32(g_cpu_ir);
-//	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-}
-
-// move_8 and move_16 are not needed right now and are only here because they're referenced in the
-// code below that builds the opcode handler table.
-static int m68k_move_8(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	char* str = get_ea_mode_str_8(g_cpu_ir);
-//	sprintf(g_dasm_str, "move.b  %s, %s", str, get_ea_mode_str_8(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-}
-
-static int m68k_move_16(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
 //	char* str = get_ea_mode_str_16(g_cpu_ir);
-//	sprintf(g_dasm_str, "move.w  %s, %s", str, get_ea_mode_str_16(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-}
-
-static int m68k_movea_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
-//	sprintf(g_dasm_str, "movea.l %s, A%d", get_ea_mode_str_32(g_cpu_ir), (g_cpu_ir>>9)&7);
-}
-
-static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
+//	char* str = get_ea_mode_str_32(g_cpu_ir);
+//	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
 //	sprintf(g_dasm_str, "moveq   #%s, D%d", make_signed_hex_str_8(g_cpu_ir), (g_cpu_ir>>9)&7);
 }
 
@@ -263,9 +289,7 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size)
             // match opcode mask and allowed effective address modes
             if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
                 // handle destination effective address modes for move instructions
-                if ((opcinfo->opc_handler == m68k_move_8 ||
-                     opcinfo->opc_handler == m68k_move_16 ||
-                     opcinfo->opc_handler == m68k_move_32) &&
+                if ((opcinfo->opc_handler == m68k_move) &&
                      !valid_ea_mode(((opcode >> 9) & 7) | ((opcode >> 3) & 0x38), 0xbf8))
                     continue;
                 if (valid_ea_mode(opcode, opcinfo->opc_ea_mask)) {
