@@ -11,7 +11,7 @@
     /* open DOS library */
     movea.l     AbsExecBase, a6
     lea         libname, a1
-    clr.l       d0
+    moveq.l     #0, d0
     jsr         OpenLibrary(a6)
     tst.l       d0
     beq.w       error_no_dos
@@ -33,7 +33,7 @@ normal_exit:
     movea.l     AbsExecBase, a6
     movea.l     DOSBase, a1
     jsr         CloseLibrary(a6)
-    clr.l       d0                      /* exit code */
+    moveq.l     #0, d0                      /* exit code */
     rts
 
 error_no_dos:
