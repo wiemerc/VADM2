@@ -53,12 +53,12 @@ static void sigsegv(int signum)
 //
 bool load_program(
     const char *fname,              // IN: name of the program image
-    void       **hunk_addresses     // OUT: table with start addresses of the hunks (actually the respective
-                                    //      blocks (HUNK_CODE, HUNK_DATA and HUNK_BSS) inside the 3 hunks)
+    void       **code_address,      // OUT: start address of the code (the HUNK_CODE block in the hunk)
+    uint32_t   *code_size           // OUT: size of the code block
 )
 {
     // install our own signal handler for SIGSEGV
-    INFO("installing signal handler for SIGSEGV");
+    DEBUG("installing signal handler for SIGSEGV");
     struct sigaction new_act, old_act;
     new_act.sa_handler = sigsegv;
     new_act.sa_flags   = 0;
@@ -69,7 +69,7 @@ bool load_program(
     }
 
     // map whole image into memory
-    INFO("mapping file '%s' into memory", fname);
+    DEBUG("mapping file '%s' into memory", fname);
     int fd;
     if ((fd = open(fname, O_RDONLY)) == -1) {
         ERROR("could not open file: %s", strerror(errno));
@@ -86,13 +86,14 @@ bool load_program(
         return false;
     }
     eof = ((uint8_t *) sof) + stat_info.st_size;
-    DEBUG("image mapped at address %p", sof);
+    DEBUG("file mapped at address %p", sof);
 
-    INFO("reading individual hunks");
-    void        *pos       = sof;       // current position in file
-    uint32_t     hunk_num  = 0;         // current hunk number
-    uint32_t     block_type;            // current block type
-    uint32_t     ndwords;               // number of dwords in current block
+    DEBUG("reading individual hunks");
+    void        *pos       = sof;               // current position in file
+    void        *hunk_addresses[MAX_HUNKS];     // start addresses of the hunks
+    uint32_t     hunk_num  = 0;                 // current hunk number
+    uint32_t     block_type;                    // current block type
+    uint32_t     ndwords;                       // number of dwords in current block
     while(pos < eof) {
         DEBUG("reading next block of hunk #%d", hunk_num);
         block_type = read_dword(&pos);
@@ -145,6 +146,11 @@ bool load_program(
                 DEBUG("copying code / data (%d bytes) to mapped memory region at %p", ndwords * 4, hunk_addresses[hunk_num]);
                 memcpy(hunk_addresses[hunk_num], pos, ndwords * 4);
                 pos += ndwords * 4;
+
+                if (block_type == HUNK_CODE) {
+                    *code_address = hunk_addresses[hunk_num];
+                    *code_size    = ndwords * 4;
+                }
                 break;
 
             case HUNK_BSS:

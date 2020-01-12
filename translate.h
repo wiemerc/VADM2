@@ -9,7 +9,6 @@
 #include <stdlib.h>
 
 
-#define MAX_CODE_SIZE   65536
 #define MAX_OPCODE_SIZE 8
 
 

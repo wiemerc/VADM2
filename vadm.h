@@ -19,9 +19,13 @@
 #define CRIT(fmt, ...)  {fputs("CRIT  | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
 
 // function prototypes
-bool load_program(const char *fname, void **hunk_addresses);
+bool load_program(const char *fname, void **code_address, uint32_t *code_size);
 bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size);
 
 // constants for the loader
-#define MAX_HUNKS     4         // HUNK_CODE, HUNK_DATA, HUNK_BSS and one hunk just in case...
-#define MAX_HUNK_SIZE 65536     // 64KB should be more than enough for any example program
+#define HUNK_START_ADDRESS  0x00100000
+#define MAX_HUNKS           4         // HUNK_CODE, HUNK_DATA, HUNK_BSS and one hunk just in case...
+#define MAX_HUNK_SIZE       65536     // 64KB should be more than enough for any example program
+
+// constants for the code translation
+#define MAX_CODE_SIZE   65536

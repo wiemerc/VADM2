@@ -66,7 +66,6 @@ static void write_dword(uint32_t val, uint8_t **pos)
 //     uint8_t       **outpos           // current position in the output stream, will be updated
 // )
 
-// TODO: fix all 32-bit immediate adresses
 // TODO: handle address AbsExecBase (0x0000004)
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
@@ -180,6 +179,16 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     return nbytes_used;
 }
 
+static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+{
+    // TODO: Do gäds weida
+//	char* str = get_ea_mode_str_8(g_cpu_ir);
+//	char* str = get_ea_mode_str_16(g_cpu_ir);
+//	char* str = get_ea_mode_str_32(g_cpu_ir);
+//	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
+//	sprintf(g_dasm_str, "moveq   #%s, D%d", make_signed_hex_str_8(g_cpu_ir), (g_cpu_ir>>9)&7);
+}
+
 static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "bra     $%x", temp_pc + make_int_8(g_cpu_ir));
@@ -194,15 +203,8 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 static int m68k_lea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "lea     %s, A%d", get_ea_mode_str_32(g_cpu_ir), (g_cpu_ir>>9)&7);
-}
-
-static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
-//	char* str = get_ea_mode_str_8(g_cpu_ir);
-//	char* str = get_ea_mode_str_16(g_cpu_ir);
-//	char* str = get_ea_mode_str_32(g_cpu_ir);
-//	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-//	sprintf(g_dasm_str, "moveq   #%s, D%d", make_signed_hex_str_8(g_cpu_ir), (g_cpu_ir>>9)&7);
+    ERROR("instruction LEA not implemented");
+    return -1;
 }
 
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
@@ -327,7 +329,6 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size)
 int main()
 {
     uint8_t buffer[16];
-//    void *hunk_addresses[] = {0x1800C0DE, 0x1800DADA, 0x18000B55};
 
     // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
     for (unsigned int i = 0; i < sizeof(testcase_tbl) / MAX_OPCODE_SIZE / 2; i++) {
