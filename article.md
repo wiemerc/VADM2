@@ -12,6 +12,21 @@ Dann müsste ich allerdings den Musashi-Disassembler (zumindest den Teil, den ic
 Wahrscheinlich bessere Alternative: Keystone => http://www.keystone-engine.org/docs/tutorial.html. Dann könnte ich das Programm entweder in C oder in Python schreiben.
 
 
+## Register-Mapping
+| Register im Motorola 680x0 | Register im Intel x86-64 | Verwendung
+| -------------------------- | ------------------------ | ----------
+| A0                         | RAX
+| A1                         | RCX
+| A2                         | RDX
+| A3                         | RBX
+| A4                         | RDI
+| A5                         | RBP                      | Frame Pointer
+| A6                         | RSI                      | Basisadressen der Bibliotheken des Amiga OS
+| A7                         | RSP                      | Stack Pointer
+
+D0 - D7 => R8D - RD15
+
+
 ## Meilensteine
 15.01.2019      Projektstart
 27.01.2019      Das Ausführen von nativem Code im Kind-Prozess funktioniert grundsätzlich, allerdings erscheint die Ausgabe des Beispielprogramms nicht?!
