@@ -8,6 +8,7 @@
 
 #include <ctype.h>
 #include <fcntl.h>
+#include <netinet/in.h>         // for ntohs() and ntohl()
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -117,9 +118,12 @@ bool load_program(
                 // optionally followed by blocks containing symbols (HUNK_SYMBOL) and relocations (HUNK_RELOC32)
                 // and is ended by a HUNK_END block. The first hunk (usually the code hunk) starts with
                 // the file header (HUNK_HEADER).
+                // We use a fixed 32-bit address so that the loader can do the relocations = add the hunk
+                // addresses to the offsets in the code. In additiion we don't need to deal with 
+                // 64-bit addresses in the translation phase, which makes things a bit easier.
                 DEBUG("creating memory mapping for hunks");
                 void *hunk_addr;
-                if ((hunk_addr = mmap(NULL, MAX_HUNKS * MAX_HUNK_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
+                if ((hunk_addr = mmap((void *) HUNK_START_ADDRESS, MAX_HUNKS * MAX_HUNK_SIZE, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
                     ERROR("could not create memory mapping for hunks: %s", strerror(errno));
                     return false;
                 }
@@ -165,20 +169,13 @@ bool load_program(
 
                     for (uint32_t i = 0; i < npos_to_fix; i++) {
                         uint32_t pos_to_fix = read_dword(&pos);
-                        // A normal loader (like LoadSeg() in AmigaDOS) would add the address of the
-                        // referenced hunk to the offset at the specified position. But it's not the
-                        // 1980s anymore and we're in 64-bit land, which means the hunk addresses
-                        // are 64 bits long and don't fit into the offsets (which are only 32 bits
-                        // long of course). So we put the number of the referenced hunk into the
-                        // two MSBs of the offset instead. During the translation phase this number
-                        // will be replaced by the actual address.
                         DEBUG("applying reloc referencing hunk #%d at position %d", ref_hnum, pos_to_fix);
                         uint32_t offset = ntohl(*((uint32_t *) (hunk_addresses[hunk_num] + pos_to_fix)));
-                        if ((offset & 0xc0000000) != 0) {
-                            ERROR("offset at position %d is larger than 0x3fffffff - cannot apply relocation", pos_to_fix);
+                        if (offset > (0xffffffff - HUNK_START_ADDRESS)) {
+                            ERROR("offset at position %d is too large - cannot apply relocation", pos_to_fix);
                             return false;
                         }
-                        offset |= ref_hnum << 30;
+                        offset += (uint32_t) hunk_addresses[ref_hnum];
                         *((uint32_t *) (hunk_addresses[hunk_num] + pos_to_fix)) = htonl(offset);
                     }
                 }
