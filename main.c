@@ -6,6 +6,8 @@
 // 
 
 
+#define _GNU_SOURCE
+#include <fcntl.h>
 #include <string.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
@@ -25,7 +27,16 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("translating code");
-    if ((x86_code_addr = mmap(NULL, MAX_CODE_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) {
+    int fd;
+    if ((fd = open("/tmp/vadm-output.bin", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) {
+        ERROR("could not open output file: %s", strerror(errno));
+        return -1;
+    }
+    if (fallocate(fd, 0, 0, MAX_CODE_SIZE) == -1) {
+        ERROR("could not allocate disk space: %s", strerror(errno));
+        return -1;
+    }
+    if ((x86_code_addr = mmap(NULL, MAX_CODE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED) {
         ERROR("could not create memory mapping for translated code: %s", strerror(errno));
         return 1;
     }
