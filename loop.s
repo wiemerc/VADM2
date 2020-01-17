@@ -33,7 +33,7 @@ normal_exit:
     movea.l     AbsExecBase, a6
     movea.l     DOSBase, a1
     jsr         CloseLibrary(a6)
-    moveq.l     #0, d0                      /* exit code */
+    moveq.l     #0, d0                  /* exit code */
     rts
 
 error_no_dos:
