@@ -15,14 +15,14 @@ Wahrscheinlich bessere Alternative: Keystone => http://www.keystone-engine.org/d
 ## Register-Mapping
 | Register im Motorola 680x0 | Register im Intel x86-64 | Verwendung
 | -------------------------- | ------------------------ | ----------
-| A0                         | RAX
-| A1                         | RCX
-| A2                         | RDX
-| A3                         | RBX
-| A4                         | RDI
-| A5                         | RBP                      | Frame Pointer
-| A6                         | RSI                      | Basisadressen der Bibliotheken des Amiga OS
-| A7                         | RSP                      | Stack Pointer
+| A0                         | EAX
+| A1                         | ECX
+| A2                         | EDX
+| A3                         | EBX
+| A4                         | EDI
+| A5                         | EBP                      | Frame Pointer
+| A6                         | ESI                      | Basisadressen der Bibliotheken des Amiga OS
+| A7                         | ESP                      | Stack Pointer
 
 D0 - D7 => R8D - RD15
 

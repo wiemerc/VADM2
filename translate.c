@@ -155,8 +155,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
             return -1;
     }
 
-    // opcode (0x8b) with REX prefix (0x48) to tell the processor to use a 64-bit operand (the address)
-    write_byte(0x48, outpos);
+    // opcode
     write_byte(0x8b, outpos);
     // MOD-REG-R/M byte with register number
     switch (reg_num) {
@@ -170,7 +169,6 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
             break;
         default:
             write_byte(0x04 | (reg_num << 3), outpos);
-
     }
     // SIB byte (specifying displacement only as addressing mode) and address
     write_byte(0x25, outpos);
@@ -331,7 +329,7 @@ int main()
     uint8_t buffer[16];
 
     // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
-    for (unsigned int i = 0; i < sizeof(testcase_tbl) / MAX_OPCODE_SIZE / 2; i++) {
+    for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_OPCODE_SIZE + 1) / 2; i++) {
         // start with the outpuf buffer set to a fixed value
         memset(buffer, 0x55, 16);
         translate_code_block(&testcase_tbl[i][0][1], buffer, testcase_tbl[i][0][0]);
