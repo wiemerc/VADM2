@@ -67,6 +67,7 @@ static void write_dword(uint32_t val, uint8_t **pos)
 // )
 
 // TODO: handle address AbsExecBase (0x0000004)
+// TODO: fix translation of branch / jump instructions by translating basic blocks
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
@@ -159,7 +160,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     write_byte(0x8b, outpos);
     // MOD-REG-R/M byte with register number
     switch (reg_num) {
-        // In order to map A7 to RSP, we have to swap the register numbers of A4 and A7. With all
+        // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
         // other registers, we can use the same numbers as on the 680x0.
         case 4:
             write_byte(0x3c, outpos);
@@ -177,6 +178,27 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     return nbytes_used;
 }
 
+// Motorola M68000 Family Programmer’s Reference Manual, page 4-134
+// Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
+static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+{
+    int8_t   data_byte = (m68k_opcode & 0x00ff);
+    uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
+    int      nbytes_used = 0;
+
+    DEBUG("decoding instruction MOVEQ");
+    DEBUG("destination register is D%d", reg_num);
+
+    // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
+    write_byte(0x41, outpos);
+    // opcode + register number as one byte
+    write_byte(0xb8 + reg_num, outpos);
+    // immediate value as sign-extended 32-bit value
+    write_dword((int32_t) data_byte, outpos);
+
+    return nbytes_used;
+}
+
 static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     // TODO: Do gäds weida
@@ -184,8 +206,7 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
 //	char* str = get_ea_mode_str_16(g_cpu_ir);
 //	char* str = get_ea_mode_str_32(g_cpu_ir);
 //	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-//	sprintf(g_dasm_str, "moveq   #%s, D%d", make_signed_hex_str_8(g_cpu_ir), (g_cpu_ir>>9)&7);
-    ERROR("instruction MOVE / MOVEQ not implemented");
+    ERROR("instruction MOVE not implemented");
     return -1;
 }
 
