@@ -21,7 +21,7 @@
     movea.l     DOSBase, a6
     moveq.l     #3, d2                  /* loop counter */
 loop_start:
-    move.l      #msg, d1                /* text */
+    move.l      #msg, d1                /* text address, we can't use lea because it only works with address registers */
     jsr         PutStr(a6)
     subq.l      #1, d2                  /* decrement loop counter */
     beq.s       loop_end
