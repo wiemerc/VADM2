@@ -68,6 +68,9 @@ static void write_dword(uint32_t val, uint8_t **pos)
 
 // TODO: handle address AbsExecBase (0x0000004)
 // TODO: fix translation of branch / jump instructions by translating basic blocks
+// TODO: decompose handlers into smaller functions:
+//       - function(s) to extract operand(s) as structure with type, length and value
+//       - functions to encode a specific opcode / operand combination, e. g. MOVE <register>, <memory address>
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
@@ -93,6 +96,8 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             DEBUG("8-bit offset = 0x%02x", offset);
             nbytes_used = 0;
     }
+
+    // opcode
     switch (m68k_opcode & 0x0f00) {
         case 0x0600:
             DEBUG("BNE => JNE");
@@ -116,6 +121,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             ERROR("condition 0x%x not supported", m68k_opcode & 0x0f00);
             return -1;
     }
+    // offset
     if (offset <= 0xff)
         write_byte(offset, outpos);
     else
@@ -135,7 +141,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     int      nbytes_used;
 
     DEBUG("decoding instruction MOVEA");
-    if ((m68k_opcode & 0xf000) != 0x2000) {
+    if ((m68k_opcode & 0x3000) != 0x2000) {
         ERROR("only long operation supported");
         return -1;
     }
@@ -182,7 +188,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
 static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    int8_t   data_byte = (m68k_opcode & 0x00ff);
+    int8_t   data_byte = m68k_opcode & 0x00ff;
     uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
     int      nbytes_used = 0;
 
@@ -201,13 +207,88 @@ static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
 
 static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    // TODO: Do gäds weida
-//	char* str = get_ea_mode_str_8(g_cpu_ir);
-//	char* str = get_ea_mode_str_16(g_cpu_ir);
-//	char* str = get_ea_mode_str_32(g_cpu_ir);
-//	sprintf(g_dasm_str, "move.l  %s, %s", str, get_ea_mode_str_32(((g_cpu_ir>>9) & 7) | ((g_cpu_ir>>3) & 0x38)));
-    ERROR("instruction MOVE not implemented");
-    return -1;
+    uint8_t  src_mode_reg = m68k_opcode & 0x003f;
+    uint8_t  dst_mode_reg = (m68k_opcode & 0x0fc0) >> 6;
+    uint8_t  x86_opcode;
+    uint8_t  x86_mod_reg_rm = 0;
+    uint8_t  x86_prefix_byte;
+    uint32_t addr;
+    uint32_t val;
+    int      nbytes_used = 0;
+
+    DEBUG("decoding instruction MOVE");
+    if ((m68k_opcode & 0x3000) != 0x2000) {
+        ERROR("only long operation supported");
+        return -1;
+    }
+
+    // opcode depending on operand type and source part of the MOD-REG-R/M byte
+    if ((src_mode_reg & 0xf8) == 0) {
+        DEBUG("source operand is register D%d", src_mode_reg & 0x07);
+        x86_opcode = 0x89;
+        x86_mod_reg_rm = (src_mode_reg & 0x0007) << 3;
+        x86_prefix_byte = 0x44;
+    }
+    else if (src_mode_reg == 0x39) {
+        DEBUG("source operand is memory address");
+        addr = read_dword(inpos);
+        nbytes_used = 4;
+        x86_opcode = 0x8b;
+        x86_mod_reg_rm = 0x04;
+        x86_prefix_byte = 0x44;
+    }
+    else if (src_mode_reg == 0x3c) {
+        DEBUG("source operand is immediate value");
+        val = read_dword(inpos);
+        nbytes_used = 4;
+        x86_opcode = 0xb8;
+        x86_prefix_byte = 0x41;
+    }
+    else {
+        ERROR("only data register, memory address and immediate value supported as source operand");
+        return -1;
+    }
+
+    // destination part of the MOD-REG-R/M byte
+    if ((dst_mode_reg & 0xc7) == 0) {
+        DEBUG("destination operand is register D%d", (dst_mode_reg & 0x38) >> 3);
+        if (x86_opcode == 0x89)
+            // source operand is also a register => put register in R/M part and set MOD to 11
+            x86_mod_reg_rm |= ((dst_mode_reg & 0x38) >> 3) | 0xc0;
+        else if (x86_opcode == 0xb8)
+            // source operand is immediate value => add register number to opcode (no separate MOD-REG-R/M byte)
+            x86_opcode |= ((dst_mode_reg & 0x38) >> 3);
+        else
+            // source operand is memory address => put register in REG part
+            x86_mod_reg_rm |= (dst_mode_reg & 0x38);
+    }
+    else if (dst_mode_reg == 0x0f) {
+        DEBUG("destination operand is memory address");
+        addr = read_dword(inpos);
+        nbytes_used = 4;
+        x86_mod_reg_rm |= 0x04;
+    }
+    else {
+        ERROR("only data register or memory address supported as destination operand");
+        return -1;
+    }
+
+    // prefix byte indicating extension of register field in opcode or MOD-REG-RM byte (because we use registers R8D..R15D)
+    write_byte(x86_prefix_byte, outpos);
+    write_byte(x86_opcode, outpos);
+    // immediate value if there is one
+    if (x86_prefix_byte == 0x41)
+        write_dword(val, outpos);
+    else {
+        write_byte(x86_mod_reg_rm, outpos);
+        // SIB byte (specifying displacement only as addressing mode) and address, only if one operand is a memory address
+        if (nbytes_used > 0) {
+            write_byte(0x25, outpos);
+            write_dword(addr, outpos);
+        }
+    }
+
+    return nbytes_used;
 }
 
 static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
