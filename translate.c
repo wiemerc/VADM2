@@ -21,7 +21,7 @@
 
 
 //
-// utility functions
+// utility routines
 //
 
 // read one word from buffer and advance current position pointer
@@ -102,6 +102,33 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
 
 
 //
+// routines to encode a specific opcode / operand combination, e. g. MOV <register>, <address>
+//
+
+// move address to address register (EAX..EDX, ESI, EDI, EPP, ESP)
+static void x86_encode_move_addr_to_areg(uint32_t addr, uint8_t reg, uint8_t **pos)
+{
+    // opcode
+    write_byte(0x8b, pos);
+    // MOD-REG-R/M byte with register number
+    switch (reg) {
+        // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
+        // other registers, we can use the same numbers as on the 680x0.
+        case 4:
+            reg = 7;
+            break;
+        case 7:
+            reg = 4;
+            break;
+    }
+    write_byte(0x04 | (reg << 3), pos);
+    // SIB byte (specifying displacement only as addressing mode) and address
+    write_byte(0x25, pos);
+    write_dword(addr, pos);
+}
+
+
+//
 // opcode handlers
 //
 // All handlers have the following signature and return the number of bytes consumed, 
@@ -125,7 +152,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     uint32_t offset = m68k_opcode & 0x00ff;
     int      nbytes_used;
 
-    DEBUG("decoding instruction BCC");
+    DEBUG("translating instruction BCC");
     switch (offset) {
         // TODO: check if we need to add / subtract the length of the current instruction
         case 0x0000:
@@ -182,36 +209,18 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint16_t mode_reg = m68k_opcode & 0x003f;
-    uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
+    uint8_t  reg = (m68k_opcode & 0x0e00) >> 9;
     Operand  op;
     int      nbytes_used;
 
-    DEBUG("decoding instruction MOVEA");
+    DEBUG("translating instruction MOVEA");
     if ((m68k_opcode & 0x3000) != 0x2000) {
         ERROR("only long operation supported");
         return -1;
     }
-    DEBUG("destination register is A%d", reg_num);
+    DEBUG("destination register is A%d", reg);
     nbytes_used = extract_operand(mode_reg, inpos, &op);
-
-    // opcode
-    write_byte(0x8b, outpos);
-    // MOD-REG-R/M byte with register number
-    switch (reg_num) {
-        // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
-        // other registers, we can use the same numbers as on the 680x0.
-        case 4:
-            reg_num = 7;
-            break;
-        case 7:
-            reg_num = 4;
-            break;
-    }
-    write_byte(0x04 | (reg_num << 3), outpos);
-    // SIB byte (specifying displacement only as addressing mode) and address
-    write_byte(0x25, outpos);
-    write_dword(op.op_value, outpos);
-
+    x86_encode_move_addr_to_areg(op.op_value, reg, outpos);
     return nbytes_used;
 }
 
@@ -223,7 +232,7 @@ static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
     int      nbytes_used = 0;
 
-    DEBUG("decoding instruction MOVEQ");
+    DEBUG("translating instruction MOVEQ");
     DEBUG("destination register is D%d", reg_num);
 
     // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
@@ -247,7 +256,7 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
     uint32_t val;
     int      nbytes_used = 0;
 
-    DEBUG("decoding instruction MOVE");
+    DEBUG("translating instruction MOVE");
     if ((m68k_opcode & 0x3000) != 0x2000) {
         ERROR("only long operation supported");
         return -1;
