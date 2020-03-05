@@ -17,13 +17,13 @@
 // the 9 instructions which are used in the test program, needs to be sorted by the
 // number of set bits in mask in descending order to ensure the longest match wins
 //
-typedef int (*opcode_handler_func_t)(uint16_t, const uint8_t **, uint8_t **);
+typedef int (*OpcodeHandlerFunc)(uint16_t, const uint8_t **, uint8_t **);
 typedef struct
 {
-    opcode_handler_func_t opc_handler;    // handler function
-    uint16_t opc_mask;                    // mask on opcode
-    uint16_t opc_match;                   // what to match after masking
-    uint16_t opc_ea_mask;                 // allowed effective address modes
+    OpcodeHandlerFunc  opc_handler;     // handler function
+    uint16_t opc_mask;                  // mask on opcode
+    uint16_t opc_match;                 // what to match after masking
+    uint16_t opc_ea_mask;               // allowed effective address modes
 } OpcodeInfo;
 
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos);
@@ -51,6 +51,22 @@ static const OpcodeInfo opcode_info_tbl[] = {
     {m68k_move         , 0xf000, 0x2000, 0xfff},      // move.l
     {NULL, 0, 0, 0}
 };
+
+
+//
+// structure describing an operand as returned by extract_operand() and used by encode_move_*()
+//
+typedef struct
+{
+    uint8_t  op_type;                   // operand type: register, address, immediate value
+    uint8_t  op_length;                 // operand length: 1, 2 or 4 bytes
+    uint32_t op_value;                  // operand value
+} Operand;
+
+#define OP_AREG 0
+#define OP_DREG 1
+#define OP_ADDR 2
+#define OP_IMM  3
 
 
 //

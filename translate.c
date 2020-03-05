@@ -54,6 +54,52 @@ static void write_dword(uint32_t val, uint8_t **pos)
     *pos += 4;
 }
 
+// extract operand from instruction stream and fill Operand structure, return number of bytes used
+static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
+{
+    if ((mode_reg & 0xf8) == 0) {
+        op->op_type = OP_DREG;
+        op->op_length = 4;
+        op->op_value = mode_reg & 0x07;
+        DEBUG("operand is register D%d", mode_reg & 0x07);
+        return 0;
+    }
+    else if ((mode_reg & 0xf8) == 8) {
+        op->op_type = OP_AREG;
+        op->op_length = 4;
+        op->op_value = mode_reg & 0x07;
+        DEBUG("operand is register A%d", mode_reg & 0x07);
+        return 0;
+    }
+    else if (mode_reg == 0x38) {
+        op->op_type = OP_ADDR;
+        op->op_length = 2;
+        op->op_value = (uint32_t) read_word(pos);
+        DEBUG("operand is 16-bit address 0x%04x", (uint16_t) op->op_value);
+        return 2;
+    }
+    else if (mode_reg == 0x39) {
+        op->op_type = OP_ADDR;
+        op->op_length = 4;
+        op->op_value = read_dword(pos);
+        DEBUG("operand is 32-bit address 0x%08x", op->op_value);
+        return 4;
+    }
+    else if (mode_reg == 0x3c) {
+        op->op_type = OP_IMM;
+        // TODO: always 4 bytes?
+        op->op_length = 4;
+        op->op_value = read_dword(pos);
+        DEBUG("operand is immediate value 0x%08x", op->op_value);
+        return 4;
+    }
+    else {
+        ERROR("only data / address register, memory address and immediate value supported as operand");
+        return -1;
+    }
+
+}
+
 
 //
 // opcode handlers
@@ -137,7 +183,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
 {
     uint16_t mode_reg = m68k_opcode & 0x003f;
     uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
-    uint32_t addr;
+    Operand  op;
     int      nbytes_used;
 
     DEBUG("decoding instruction MOVEA");
@@ -146,21 +192,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
         return -1;
     }
     DEBUG("destination register is A%d", reg_num);
-    switch (mode_reg) {
-        case 0x0038:
-            DEBUG("MOVEA.L with 16-bit address");
-            addr = read_word(inpos);
-            nbytes_used = 2;
-            break;
-        case 0x0039:
-            DEBUG("MOVEA.L with 32-bit address");
-            addr = read_dword(inpos);
-            nbytes_used = 4;
-            break;
-        default:
-            ERROR("value 0x%02x for mode / register not supported", mode_reg);
-            return -1;
-    }
+    nbytes_used = extract_operand(mode_reg, inpos, &op);
 
     // opcode
     write_byte(0x8b, outpos);
@@ -169,17 +201,16 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
         // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
         // other registers, we can use the same numbers as on the 680x0.
         case 4:
-            write_byte(0x3c, outpos);
+            reg_num = 7;
             break;
         case 7:
-            write_byte(0x24, outpos);
+            reg_num = 4;
             break;
-        default:
-            write_byte(0x04 | (reg_num << 3), outpos);
     }
+    write_byte(0x04 | (reg_num << 3), outpos);
     // SIB byte (specifying displacement only as addressing mode) and address
     write_byte(0x25, outpos);
-    write_dword(addr, outpos);
+    write_dword(op.op_value, outpos);
 
     return nbytes_used;
 }
@@ -372,7 +403,7 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, int size)
 {
     uint16_t opcode;
     int      nbytes_used;
-    opcode_handler_func_t opcode_handler_tbl[0x10000];
+    OpcodeHandlerFunc opcode_handler_tbl[0x10000];
 
     // build table with all 65536 possible opcodes and their handlers
     // (code is copied straight from Musashi)
