@@ -104,6 +104,9 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
 //
 // routines to encode a specific opcode / operand combination, e. g. MOV <register>, <address>
 //
+// explanation of MOD-REG-R/M and SIB bytes: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x86.htm
+// explanation of REX prefix: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x64.htm
+//
 
 // move address to address register (EAX..EDX, ESI, EDI, EPP, ESP)
 static void x86_encode_move_addr_to_areg(uint32_t addr, uint8_t reg, uint8_t **pos)
@@ -125,6 +128,36 @@ static void x86_encode_move_addr_to_areg(uint32_t addr, uint8_t reg, uint8_t **p
     // SIB byte (specifying displacement only as addressing mode) and address
     write_byte(0x25, pos);
     write_dword(addr, pos);
+}
+
+// move immediate value to address register (EAX..EDX, ESI, EDI, EPP, ESP)
+static void x86_encode_move_imm_to_areg(uint32_t value, uint8_t reg, uint8_t **pos)
+{
+    // opcode + register number as one byte
+    switch (reg) {
+        // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
+        // other registers, we can use the same numbers as on the 680x0.
+        case 4:
+            reg = 7;
+            break;
+        case 7:
+            reg = 4;
+            break;
+    }
+    write_byte(0xb8 + reg, pos);
+    // immediate value
+    write_dword(value, pos);
+}
+
+// move immediate value to data register (R8D..R15D)
+static void x86_encode_move_imm_to_dreg(uint32_t value, uint8_t reg, uint8_t **pos)
+{
+    // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
+    write_byte(0x41, pos);
+    // opcode + register number as one byte
+    write_byte(0xb8 + reg, pos);
+    // immediate value
+    write_dword(value, pos);
 }
 
 
@@ -204,8 +237,6 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-119
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
-// explanation of MOD-REG-R/M and SIB bytes: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x86.htm
-// explanation of REX prefix: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x64.htm
 static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint16_t mode_reg = m68k_opcode & 0x003f;
@@ -220,7 +251,14 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     }
     DEBUG("destination register is A%d", reg);
     nbytes_used = extract_operand(mode_reg, inpos, &op);
-    x86_encode_move_addr_to_areg(op.op_value, reg, outpos);
+    if (op.op_type == OP_ADDR)
+        x86_encode_move_addr_to_areg(op.op_value, reg, outpos);
+    else if (op.op_type == OP_IMM)
+        x86_encode_move_imm_to_areg(op.op_value, reg, outpos);
+    else {
+        ERROR("invalid operand type %d for MOVEA", op.op_type);
+        return -1;
+    }
     return nbytes_used;
 }
 
@@ -228,21 +266,17 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
 static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    int8_t   data_byte = m68k_opcode & 0x00ff;
-    uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
+    // immediate value as sign-extended 32-bit value
+    int32_t  value = (int8_t) (m68k_opcode & 0x00ff);
+    uint8_t  reg  = (m68k_opcode & 0x0e00) >> 9;
     int      nbytes_used = 0;
 
     DEBUG("translating instruction MOVEQ");
-    DEBUG("destination register is D%d", reg_num);
-
-    // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
-    write_byte(0x41, outpos);
-    // opcode + register number as one byte
-    write_byte(0xb8 + reg_num, outpos);
-    // immediate value as sign-extended 32-bit value
-    write_dword((int32_t) data_byte, outpos);
-
+    DEBUG("destination register is D%d", reg);
+    x86_encode_move_imm_to_dreg(value, reg, outpos);
     return nbytes_used;
+
+
 }
 
 static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
@@ -333,29 +367,24 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
 
 static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "bra     $%x", temp_pc + make_int_8(g_cpu_ir));
 }
 
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "jsr     %s", get_ea_mode_str_32(g_cpu_ir));
-//	SET_OPCODE_FLAGS(DASMFLAG_STEP_OVER);
+    // TODO: Do gäds weida
+    return -1;
 }
 
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "rts");
-//	SET_OPCODE_FLAGS(DASMFLAG_STEP_OUT);
 }
 
 static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "subq.l  #%d, %s", g_3bit_qdata_table[(g_cpu_ir>>9)&7], get_ea_mode_str_32(g_cpu_ir));
 }
 
 static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-//	sprintf(g_dasm_str, "tst.l   %s", get_ea_mode_str_32(g_cpu_ir));
 }
 
 
