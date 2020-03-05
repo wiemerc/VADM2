@@ -302,55 +302,6 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 //	SET_OPCODE_FLAGS(DASMFLAG_STEP_OVER);
 }
 
-// Motorola M68000 Family Programmer’s Reference Manual, page 4-110
-// Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-525
-static int m68k_lea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
-    uint16_t mode_reg = m68k_opcode & 0x003f;
-    uint8_t  reg_num  = (m68k_opcode & 0x0e00) >> 9;
-    uint32_t addr;
-    int      nbytes_used;
-
-    DEBUG("decoding instruction LEA");
-    DEBUG("destination register is A%d", reg_num);
-    switch (mode_reg) {
-        case 0x0038:
-            DEBUG("LEA with 16-bit address");
-            addr = read_word(inpos);
-            nbytes_used = 2;
-            break;
-        case 0x0039:
-            DEBUG("LEA with 32-bit address");
-            addr = read_dword(inpos);
-            nbytes_used = 4;
-            break;
-        default:
-            ERROR("value 0x%02x for mode / register not supported", mode_reg);
-            return -1;
-    }
-
-    // opcode
-    write_byte(0x8d, outpos);
-    // MOD-REG-R/M byte with register number
-    switch (reg_num) {
-        // In order to map A7 to RSP, we have to swap the register numbers of A4 and A7. With all
-        // other registers, we can use the same numbers as on the 680x0.
-        case 4:
-            write_byte(0x3c, outpos);
-            break;
-        case 7:
-            write_byte(0x24, outpos);
-            break;
-        default:
-            write_byte(0x04 | (reg_num << 3), outpos);
-    }
-    // SIB byte (specifying displacement only as addressing mode) and address
-    write_byte(0x25, outpos);
-    write_dword(addr, outpos);
-
-    return nbytes_used;
-}
-
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
 //	sprintf(g_dasm_str, "rts");

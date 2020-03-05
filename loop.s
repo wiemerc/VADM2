@@ -10,7 +10,7 @@
 .text
     /* open DOS library */
     movea.l     AbsExecBase, a6
-    lea         libname, a1
+    movea.l     #libname, a1
     moveq.l     #0, d0
     jsr         OpenLibrary(a6)
     tst.l       d0
