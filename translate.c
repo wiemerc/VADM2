@@ -214,9 +214,6 @@ static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos
 
 // TODO: handle address AbsExecBase (0x0000004)
 // TODO: fix translation of branch / jump instructions by translating basic blocks
-// TODO: decompose handlers into smaller functions:
-//       - function(s) to extract operand(s) as structure with type, length and value
-//       - functions to encode a specific opcode / operand combination, e. g. MOVE <register>, <memory address>
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
@@ -226,6 +223,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     int      nbytes_used;
 
     DEBUG("translating instruction BCC");
+   // TODO: Do gäds weida
     switch (offset) {
         // TODO: check if we need to add / subtract the length of the current instruction
         case 0x0000:
@@ -369,7 +367,6 @@ static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
 static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    // TODO: Do gäds weida
     uint16_t mode_reg = m68k_opcode & 0x003f;
     uint8_t  value = (m68k_opcode & 0x0e00) >> 9;
     Operand  op;
@@ -399,6 +396,30 @@ static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **o
 
 static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
+    uint16_t mode_reg = m68k_opcode & 0x003f;
+    Operand  op;
+    int      nbytes_used;
+
+    DEBUG("translating instruction TST");
+    if ((m68k_opcode & 0x00c0) != 0x0080) {
+        ERROR("only long operation supported");
+        return -1;
+    }
+    nbytes_used = extract_operand(mode_reg, inpos, &op);
+    if (op.op_type != OP_DREG) {
+        ERROR("only data register supported as destination operand");
+        return -1;
+    }
+    // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
+    write_byte(0x41, outpos);
+    // opcode
+    write_byte(0xf7, outpos);
+    // register number
+    write_byte(0xc0 + op.op_value, outpos);
+    // value to test against as dword, always implicitly 0 with the TST instruction (Motorola),
+    // but has to be specified with the TEST instruction (Intel)
+    write_dword(0, outpos);
+    return nbytes_used;
 }
 
 
