@@ -72,14 +72,14 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
         return 0;
     }
     else if (mode_reg == 0x38) {
-        op->op_type = OP_ADDR;
+        op->op_type = OP_MEM;
         op->op_length = 2;
         op->op_value = (uint32_t) read_word(pos);
         DEBUG("operand is 16-bit address 0x%04x", (uint16_t) op->op_value);
         return 2;
     }
     else if (mode_reg == 0x39) {
-        op->op_type = OP_ADDR;
+        op->op_type = OP_MEM;
         op->op_length = 4;
         op->op_value = read_dword(pos);
         DEBUG("operand is 32-bit address 0x%08x", op->op_value);
@@ -94,7 +94,7 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
         return 4;
     }
     else {
-        ERROR("only data / address register, memory address and immediate value supported as operand");
+        ERROR("only data / address register, memory and immediate value supported as operand");
         return -1;
     }
 
@@ -108,8 +108,8 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
 // explanation of REX prefix: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x64.htm
 //
 
-// move address to address register (EAX..EDX, ESI, EDI, EPP, ESP)
-static void x86_encode_move_addr_to_areg(uint32_t addr, uint8_t reg, uint8_t **pos)
+// move memory to address register (EAX..EDX, ESI, EDI, EPP, ESP)
+static void x86_encode_move_mem_to_areg(uint32_t addr, uint8_t reg, uint8_t **pos)
 {
     // opcode
     write_byte(0x8b, pos);
@@ -124,6 +124,20 @@ static void x86_encode_move_addr_to_areg(uint32_t addr, uint8_t reg, uint8_t **p
             reg = 4;
             break;
     }
+    write_byte(0x04 | (reg << 3), pos);
+    // SIB byte (specifying displacement only as addressing mode) and address
+    write_byte(0x25, pos);
+    write_dword(addr, pos);
+}
+
+// move memory to data register (R8D..R15D)
+static void x86_encode_move_mem_to_dreg(uint32_t addr, uint8_t reg, uint8_t **pos)
+{
+    // prefix byte indicating extension of register field in MOD-REG-R/M byte (because we use registers R8D..R15D)
+    write_byte(0x44, pos);
+    // opcode
+    write_byte(0x8b, pos);
+    // MOD-REG-R/M byte with register number
     write_byte(0x04 | (reg << 3), pos);
     // SIB byte (specifying displacement only as addressing mode) and address
     write_byte(0x25, pos);
@@ -158,6 +172,32 @@ static void x86_encode_move_imm_to_dreg(uint32_t value, uint8_t reg, uint8_t **p
     write_byte(0xb8 + reg, pos);
     // immediate value
     write_dword(value, pos);
+}
+
+// move data register (R8D..R15D) to memory
+static void x86_encode_move_dreg_to_mem(uint8_t reg, uint32_t addr, uint8_t **pos)
+{
+    // prefix byte indicating extension of register field in MOD-REG-R/M byte (because we use registers R8D..R15D)
+    write_byte(0x44, pos);
+    // opcode
+    write_byte(0x89, pos);
+    // MOD-REG-R/M byte with register number
+    write_byte(0x04 | (reg << 3), pos);
+    // SIB byte (specifying displacement only as addressing mode) and address
+    write_byte(0x25, pos);
+    write_dword(addr, pos);
+}
+
+// move data register (R8D..R15D) to data register
+static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos)
+{
+    // prefix byte indicating extension of register fields (REG and R/M) in MOD-REG-R/M byte (because we use registers R8D..R15D)
+    write_byte(0x45, pos);
+    // opcode
+    write_byte(0x89, pos);
+    // MOD-REG-R/M byte with register numbers, mode = 11, source register goes into REG part,
+    // destination register into R/M part
+    write_byte(0xc0 | (src << 3) | dst, pos);
 }
 
 
@@ -251,8 +291,8 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     }
     DEBUG("destination register is A%d", reg);
     nbytes_used = extract_operand(mode_reg, inpos, &op);
-    if (op.op_type == OP_ADDR)
-        x86_encode_move_addr_to_areg(op.op_value, reg, outpos);
+    if (op.op_type == OP_MEM)
+        x86_encode_move_mem_to_areg(op.op_value, reg, outpos);
     else if (op.op_type == OP_IMM)
         x86_encode_move_imm_to_areg(op.op_value, reg, outpos);
     else {
@@ -275,19 +315,13 @@ static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     DEBUG("destination register is D%d", reg);
     x86_encode_move_imm_to_dreg(value, reg, outpos);
     return nbytes_used;
-
-
 }
 
 static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint8_t  src_mode_reg = m68k_opcode & 0x003f;
     uint8_t  dst_mode_reg = (m68k_opcode & 0x0fc0) >> 6;
-    uint8_t  x86_opcode;
-    uint8_t  x86_mod_reg_rm = 0;
-    uint8_t  x86_prefix_byte;
-    uint32_t addr;
-    uint32_t val;
+    Operand  srcop, dstop;
     int      nbytes_used = 0;
 
     DEBUG("translating instruction MOVE");
@@ -296,72 +330,22 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
         return -1;
     }
 
-    // opcode depending on operand type and source part of the MOD-REG-R/M byte
-    if ((src_mode_reg & 0xf8) == 0) {
-        DEBUG("source operand is register D%d", src_mode_reg & 0x07);
-        x86_opcode = 0x89;
-        x86_mod_reg_rm = (src_mode_reg & 0x0007) << 3;
-        x86_prefix_byte = 0x44;
-    }
-    else if (src_mode_reg == 0x39) {
-        DEBUG("source operand is memory address");
-        addr = read_dword(inpos);
-        nbytes_used = 4;
-        x86_opcode = 0x8b;
-        x86_mod_reg_rm = 0x04;
-        x86_prefix_byte = 0x44;
-    }
-    else if (src_mode_reg == 0x3c) {
-        DEBUG("source operand is immediate value");
-        val = read_dword(inpos);
-        nbytes_used = 4;
-        x86_opcode = 0xb8;
-        x86_prefix_byte = 0x41;
-    }
+    nbytes_used += extract_operand(src_mode_reg, inpos, &srcop);
+    // destination operand has mode and register parts swapped
+    dst_mode_reg = ((dst_mode_reg & 0x07) << 3) | ((dst_mode_reg & 0x38) >> 3);
+    nbytes_used += extract_operand(dst_mode_reg, inpos, &dstop);
+    if ((srcop.op_type      == OP_MEM)  && (dstop.op_type == OP_DREG))
+        x86_encode_move_mem_to_dreg(srcop.op_value, dstop.op_value, outpos);
+    else if ((srcop.op_type == OP_IMM)  && (dstop.op_type == OP_DREG))
+        x86_encode_move_imm_to_dreg(srcop.op_value, dstop.op_value, outpos);
+    else if ((srcop.op_type == OP_DREG) && (dstop.op_type == OP_MEM))
+        x86_encode_move_dreg_to_mem(srcop.op_value, dstop.op_value, outpos);
+    else if ((srcop.op_type == OP_DREG) && (dstop.op_type == OP_DREG))
+        x86_encode_move_dreg_to_dreg(srcop.op_value, dstop.op_value, outpos);
     else {
-        ERROR("only data register, memory address and immediate value supported as source operand");
+        ERROR("combination of source / destination operand types %d / %d not supported", srcop.op_type, dstop.op_type);
         return -1;
     }
-
-    // destination part of the MOD-REG-R/M byte
-    if ((dst_mode_reg & 0xc7) == 0) {
-        DEBUG("destination operand is register D%d", (dst_mode_reg & 0x38) >> 3);
-        if (x86_opcode == 0x89)
-            // source operand is also a register => put register in R/M part and set MOD to 11
-            x86_mod_reg_rm |= ((dst_mode_reg & 0x38) >> 3) | 0xc0;
-        else if (x86_opcode == 0xb8)
-            // source operand is immediate value => add register number to opcode (no separate MOD-REG-R/M byte)
-            x86_opcode |= ((dst_mode_reg & 0x38) >> 3);
-        else
-            // source operand is memory address => put register in REG part
-            x86_mod_reg_rm |= (dst_mode_reg & 0x38);
-    }
-    else if (dst_mode_reg == 0x0f) {
-        DEBUG("destination operand is memory address");
-        addr = read_dword(inpos);
-        nbytes_used = 4;
-        x86_mod_reg_rm |= 0x04;
-    }
-    else {
-        ERROR("only data register or memory address supported as destination operand");
-        return -1;
-    }
-
-    // prefix byte indicating extension of register field in opcode or MOD-REG-RM byte (because we use registers R8D..R15D)
-    write_byte(x86_prefix_byte, outpos);
-    write_byte(x86_opcode, outpos);
-    // immediate value if there is one
-    if (x86_prefix_byte == 0x41)
-        write_dword(val, outpos);
-    else {
-        write_byte(x86_mod_reg_rm, outpos);
-        // SIB byte (specifying displacement only as addressing mode) and address, only if one operand is a memory address
-        if (nbytes_used > 0) {
-            write_byte(0x25, outpos);
-            write_dword(addr, outpos);
-        }
-    }
-
     return nbytes_used;
 }
 
@@ -371,12 +355,12 @@ static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    // TODO: Do gäds weida
     return -1;
 }
 
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
+    // TODO: Do gäds weida
 }
 
 static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
