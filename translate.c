@@ -309,12 +309,12 @@ static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     // immediate value as sign-extended 32-bit value
     int32_t  value = (int8_t) (m68k_opcode & 0x00ff);
     uint8_t  reg  = (m68k_opcode & 0x0e00) >> 9;
-    int      nbytes_used = 0;
 
     DEBUG("translating instruction MOVEQ");
     DEBUG("destination register is D%d", reg);
+    DEBUG("immediate value = %d", value);
     x86_encode_move_imm_to_dreg(value, reg, outpos);
-    return nbytes_used;
+    return 0;
 }
 
 static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
@@ -370,6 +370,31 @@ static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     // TODO: Do gäds weida
+    uint16_t mode_reg = m68k_opcode & 0x003f;
+    uint8_t  value = (m68k_opcode & 0x0e00) >> 9;
+    Operand  op;
+    int      nbytes_used;
+
+    DEBUG("translating instruction SUBQ");
+    if ((m68k_opcode & 0x00c0) != 0x0080) {
+        ERROR("only long operation supported");
+        return -1;
+    }
+    DEBUG("immediate value = %d", value);
+    nbytes_used = extract_operand(mode_reg, inpos, &op);
+    if (op.op_type != OP_DREG) {
+        ERROR("only data register supported as destination operand");
+        return -1;
+    }
+    // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
+    write_byte(0x41, outpos);
+    // opcode
+    write_byte(0x83, outpos);
+    // register number
+    write_byte(0xe8 + op.op_value, outpos);
+    // value
+    write_byte(value, outpos);
+    return nbytes_used;
 }
 
 static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
