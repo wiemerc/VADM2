@@ -334,6 +334,8 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
     // destination operand has mode and register parts swapped
     dst_mode_reg = ((dst_mode_reg & 0x07) << 3) | ((dst_mode_reg & 0x38) >> 3);
     nbytes_used += extract_operand(dst_mode_reg, inpos, &dstop);
+
+    // call the appropriate function depending on the combination of source / destination operand type
     if ((srcop.op_type      == OP_MEM)  && (dstop.op_type == OP_DREG))
         x86_encode_move_mem_to_dreg(srcop.op_value, dstop.op_value, outpos);
     else if ((srcop.op_type == OP_IMM)  && (dstop.op_type == OP_DREG))
@@ -360,11 +362,14 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    // TODO: Do gäds weida
+    DEBUG("translating instruction RTS");
+    write_byte(0xc3, outpos);
+    return 0;
 }
 
 static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
+    // TODO: Do gäds weida
 }
 
 static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
