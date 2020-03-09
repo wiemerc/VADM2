@@ -41,16 +41,18 @@ static uint32_t read_dword(void **ptr)
 //
 // signal handler for SIGSEGV
 //
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 static void sigsegv(int signum)
 {
     CRIT("segmentation fault occurred while loading program image");
     exit(1);
 }
-
+#pragma GCC diagnostic pop
 
 //
 // load the program image
 //
+// TODO: code_size still needed?
 bool load_program(
     const char *fname,              // IN: name of the program image
     void       **code_address,      // OUT: start address of the code (the HUNK_CODE block in the hunk)
@@ -133,6 +135,10 @@ bool load_program(
                 // to the memory regions where these blocks will be copied to
                 for (uint32_t i = first_hnum; i <= last_hnum; i++) {
                     uint32_t hunk_size = read_dword(&pos);
+                    if ((hunk_size * 4) > MAX_HUNK_SIZE) {
+                        ERROR("hunk #%d is larger than the maximum supported size of 64KB", i);
+                        return false;
+                    }
                     DEBUG("size (in bytes) of hunk #%d = %d, will be stored at %p", i, hunk_size * 4, hunk_addr);
                     hunk_addresses[i] = hunk_addr;
                     hunk_addr += MAX_HUNK_SIZE;
@@ -148,6 +154,14 @@ bool load_program(
                 pos += ndwords * 4;
 
                 if (block_type == HUNK_CODE) {
+                    // We append an RTS instruction to the code to make sure it always ends
+                    // with a terminal instruction. This way, translate_code_block() can translate
+                    // until it hits a terminal instruction and doesn't need to know the size of
+                    // the code block to translate.
+                    if ((ndwords * 4) > (MAX_HUNK_SIZE - 4)) {
+                        ERROR("code hunk is too large to append RTS");
+                        return false;
+                    }
                     *code_address = hunk_addresses[hunk_num];
                     *code_size    = ndwords * 4;
                 }
@@ -181,7 +195,9 @@ bool load_program(
                             ERROR("offset at position %d is too large - cannot apply relocation", pos_to_fix);
                             return false;
                         }
+                        #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
                         offset += (uint32_t) hunk_addresses[ref_hnum];
+                        #pragma GCC diagnostic pop
                         *((uint32_t *) (hunk_addresses[hunk_num] + pos_to_fix)) = htonl(offset);
                     }
                 }
