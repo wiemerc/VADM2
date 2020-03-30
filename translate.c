@@ -27,7 +27,7 @@
 // routines that implement the translation cache
 //
 
-// initialize cache = allocate memory block backed by a file
+// initialize cache = allocate memory for the cache + the TranslationCache object, backed by a file
 TranslationCache *tc_init()
 {
     int fd;
@@ -35,7 +35,7 @@ TranslationCache *tc_init()
         ERROR("could not open output file: %s", strerror(errno));
         return NULL;
     }
-    if (fallocate(fd, 0, 0, MAX_CODE_SIZE) == -1) {
+    if (fallocate(fd, 0, 0, sizeof(TranslationCache) + MAX_CODE_SIZE) == -1) {
         ERROR("could not allocate disk space: %s", strerror(errno));
         return NULL;
     }
@@ -44,7 +44,7 @@ TranslationCache *tc_init()
         ERROR("could not create memory mapping for translated code: %s", strerror(errno));
         return NULL;
     }
-    tc->tc_start_addr = (uint8_t *) tc;
+    tc->tc_start_addr = ((uint8_t *) tc) + sizeof(TranslationCache);
     tc->tc_next_addr = tc->tc_start_addr;
     return tc;
 }
