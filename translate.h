@@ -9,7 +9,23 @@
 #include <stdlib.h>
 
 
+// constants
+#define MAX_CODE_SIZE   65536
+#define MAX_CODE_BLOCK_SIZE 256
 #define MAX_OPCODE_SIZE 8
+
+
+//
+// structure to implement the translation cache
+// Right now the cache only hands out block of memory for the translated code, but as an
+// enhancement, it could actually cache code blocks already translated by storing a
+// mapping of original code addresses to addresses of translated code in a hash table.
+//
+struct TranslationCache
+{
+    uint8_t *tc_start_addr;             // address of the allocated memory block
+    uint8_t *tc_next_addr;              // address of the next code block (to be handed out)
+};
 
 
 //
@@ -18,13 +34,15 @@
 // number of set bits in mask in descending order to ensure the longest match wins
 //
 typedef int (*OpcodeHandlerFunc)(uint16_t, const uint8_t **, uint8_t **);
-typedef struct
+struct OpcodeInfo
 {
     OpcodeHandlerFunc  opc_handler;     // handler function
     uint16_t opc_mask;                  // mask on opcode
     uint16_t opc_match;                 // what to match after masking
     uint16_t opc_ea_mask;               // allowed effective address modes
-} OpcodeInfo;
+    bool     opc_terminal;              // terminal instruction in a translation unit
+};
+typedef struct OpcodeInfo OpcodeInfo;
 
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos);
 static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos);
@@ -37,31 +55,32 @@ static int m68k_subq_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **o
 static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos);
 
 static const OpcodeInfo opcode_info_tbl[] = {
-//   opcode handler      mask    match   effective address mask
-    {m68k_rts          , 0xffff, 0x4e75, 0x000},      // rts
-    {m68k_tst_32       , 0xffc0, 0x4a80, 0xbf8},      // tst.l
-    {m68k_jsr          , 0xffc0, 0x4e80, 0x27b},      // jsr
-    {m68k_bra          , 0xff00, 0x6000, 0x000},      // bra.*
-    {m68k_subq_32      , 0xf1c0, 0x5180, 0xff8},      // subq.l
-    {m68k_movea        , 0xf1c0, 0x2040, 0xfff},      // movea.*
-    {m68k_moveq        , 0xf100, 0x7000, 0x000},      // moveq.l
-    {m68k_bcc          , 0xf000, 0x6000, 0x000},      // bcc.*
-    {m68k_move         , 0xf000, 0x1000, 0xbff},      // move.b
-    {m68k_move         , 0xf000, 0x3000, 0xfff},      // move.w
-    {m68k_move         , 0xf000, 0x2000, 0xfff},      // move.l
-    {NULL, 0, 0, 0}
+//   opcode handler      mask    match   effective address mask     terminal y/n?
+    {m68k_rts          , 0xffff, 0x4e75, 0x000,                     true},       // rts
+    {m68k_tst_32       , 0xffc0, 0x4a80, 0xbf8,                     false},      // tst.l
+    {m68k_jsr          , 0xffc0, 0x4e80, 0x27b,                     false},      // jsr
+    {m68k_bra          , 0xff00, 0x6000, 0x000,                     true},       // bra.*
+    {m68k_subq_32      , 0xf1c0, 0x5180, 0xff8,                     false},      // subq.l
+    {m68k_movea        , 0xf1c0, 0x2040, 0xfff,                     false},      // movea.*
+    {m68k_moveq        , 0xf100, 0x7000, 0x000,                     false},      // moveq.l
+    {m68k_bcc          , 0xf000, 0x6000, 0x000,                     true},       // bcc.*
+    {m68k_move         , 0xf000, 0x1000, 0xbff,                     false},      // move.b
+    {m68k_move         , 0xf000, 0x3000, 0xfff,                     false},      // move.w
+    {m68k_move         , 0xf000, 0x2000, 0xfff,                     false},      // move.l
+    {NULL, 0, 0, 0, false}
 };
 
 
 //
-// structure describing an operand as returned by extract_operand() and used by encode_move_*()
+// structure describing an operand as returned by extract_operand()
 //
-typedef struct
+struct Operand
 {
     uint8_t  op_type;                   // operand type: register, address, immediate value
     uint8_t  op_length;                 // operand length: 1, 2 or 4 bytes
     uint32_t op_value;                  // operand value
-} Operand;
+};
+typedef struct Operand Operand;
 
 #define OP_AREG 0
 #define OP_DREG 1
