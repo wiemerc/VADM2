@@ -263,23 +263,24 @@ static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    int32_t offset = m68k_opcode & 0x00ff;
+    int32_t offset;
     int      nbytes_used;
 
     DEBUG("translating instruction BCC");
-    switch (offset) {
+    switch (m68k_opcode & 0x00ff) {
         case 0x0000:
-            offset = read_word(inpos);
-            DEBUG("16-bit offset = 0x%04x", offset);
+            offset = (int16_t) read_word(inpos);
+            DEBUG("16-bit offset = %d", offset);
             nbytes_used = 2;
             break;
         case 0x00ff:
-            offset = read_dword(inpos);
-            DEBUG("32-bit offset = 0x%08x", offset);
+            offset = (int32_t) read_dword(inpos);
+            DEBUG("32-bit offset = %d", offset);
             nbytes_used = 4;
             break;
         default:
-            DEBUG("8-bit offset = 0x%02x", offset);
+            offset = (int8_t) (m68k_opcode & 0x00ff);
+            DEBUG("8-bit offset = %d", offset);
             nbytes_used = 0;
     }
 
