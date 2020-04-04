@@ -8,6 +8,7 @@
 
 #define _GNU_SOURCE
 #include <fcntl.h>
+#include <limits.h>
 #include <netinet/in.h>         // for ntohs() and ntohl()
 #include <stdarg.h>
 #include <stdbool.h>
@@ -52,14 +53,16 @@ TranslationCache *tc_init()
 // hand out next available block of size MAX_CODE_BLOCK_SIZE
 uint8_t *tc_get_next_block(TranslationCache *tc)
 {
+    uint8_t *baddr = NULL;
     if (tc->tc_next_addr < (tc->tc_start_addr + MAX_CODE_SIZE)) {
+        baddr = tc->tc_next_addr;
         tc->tc_next_addr += MAX_CODE_BLOCK_SIZE;
-        return tc->tc_next_addr - MAX_CODE_BLOCK_SIZE;
+        DEBUG("handing out block from translation cache at address %p", baddr);
     }
     else {
         ERROR("no more free blocks available in translation cache");
-        return NULL;
     }
+    return baddr;
 }
 
 
@@ -256,13 +259,11 @@ static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos
 //     uint8_t       **outpos           // current position in the output stream, will be updated
 // )
 
-// TODO: handle address AbsExecBase (0x0000004)
-
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    uint32_t offset = m68k_opcode & 0x00ff;
+    int32_t offset = m68k_opcode & 0x00ff;
     int      nbytes_used;
 
     DEBUG("translating instruction BCC");
@@ -284,52 +285,54 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
     // recursively call translate_code_block() twice, once with the branch target as start address,
     // once with the address of the following instruction. The offset of the branch target
-    // is calculated from the position *after* the opcode, so we need to subtract the number
+    // is calculated from the position after the *opcode*, so we need to subtract the number
     // of bytes used for the offset itself.
-    // This procedure was inspired by a paper describing how VMware does binary translation:
+    // This method was inspired by a paper describing how VMware does binary translation:
     // https://www.vmware.com/pdf/asplos235_adams.pdf
-    // TODO: How do we allocate the buffer for the translated code?
-    // TODO: Store addresses of translated code blocks in hash table so that they can be reused
-    // TODO: Use a TranslationCache object to handle memory allocation, giving out memory for
-    //       translated code blocks and caching
-    //translate_code_block(*inpos + offset - nbytes_used, xxx);
-    //translate_code_block(*inpos, xxx);
+    uint8_t *branch_taken_addr = tc_get_next_block(g_trcache);
+    uint8_t *branch_not_taken_addr = tc_get_next_block(g_trcache);
+    if (!translate_code_block(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
+        ERROR("failed to translate next translation unit (branch taken)")
+        return -1;
+    }
+    if (!translate_code_block(*inpos, branch_not_taken_addr, UINT32_MAX)) {
+        ERROR("failed to translate next translation unit (branch not taken)")
+        return -1;
+    }
 
+    // offset in translated code = address of TU of branch - value of IP after branch instruction
+    // (unlike with the 680x0, it's the opcode *and* the offset with the x86, see above)
+    // To make things easier, we always use the less compact 2-byte encoding with a 32-bit offset.
+    offset = branch_taken_addr - (*outpos + 6);
     // opcode
+    write_byte(0x0f, outpos);
     switch (m68k_opcode & 0x0f00) {
         case 0x0600:
             DEBUG("BNE => JNE");
-            if (offset <= 0xff)
-                write_byte(0x75, outpos);
-            else {
-                write_byte(0x0f, outpos);
-                write_byte(0x85, outpos);
-            }
+            write_byte(0x85, outpos);
             break;
         case 0x0700:
             DEBUG("BEQ => JE");
-            if (offset <= 0xff)
-                write_byte(0x74, outpos);
-            else {
-                write_byte(0x0f, outpos);
-                write_byte(0x84, outpos);
-            }
+            write_byte(0x84, outpos);
             break;
         default:
             ERROR("condition 0x%x not supported", m68k_opcode & 0x0f00);
             return -1;
     }
     // offset
-    // TODO: use address of translated code instead
-    if (offset <= 0xff)
-        write_byte(offset, outpos);
-    else
-        write_dword(offset, outpos);
+    write_dword(offset, outpos);
+
+    // add absolute jump to the corresponding TU if branch is not taken
+    offset = branch_not_taken_addr - (*outpos + 5);
+    write_byte(0xe9, outpos);
+    write_dword(offset, outpos);
+
     return nbytes_used;
 }
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-119
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
+// TODO: replace address AbsExecBase (0x0000004) with the address where the base address of Exec library is stored
 static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint16_t mode_reg = m68k_opcode & 0x003f;
@@ -408,6 +411,7 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
 
 static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
+    return -1;
 }
 
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
@@ -540,7 +544,9 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
     uint16_t opcode;
     int      nbytes_used;
     const OpcodeInfo *opcode_handler_tbl[0x10000];
+    static uint8_t nest_level = 0;
 
+    DEBUG("entering translate_code_block (nest level = %d)", ++nest_level);
     // build table with all 65536 possible opcodes and their handlers
     // (code is copied straight from Musashi)
     // TODO: move to separate function which is called only once
@@ -567,6 +573,8 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
 
     // translate instructions one by one until we hit a terminal instruction or the number of
     // instructions to translate reaches 0
+    // TODO: check if block already exists in cache
+    // TODO: check if there is still enough space in the block
     while (ninstr_to_translate-- > 0) {
         opcode = read_word(&inptr);
 
@@ -582,10 +590,11 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
             return false;
         }
         if (opcode_handler_tbl[opcode]->opc_terminal) {
-            DEBUG("instruction is the terminal instruction in this code block - returning");
+            DEBUG("instruction is the terminal instruction in this code block - leaving translate_code_block (nest level = %d)", nest_level--);
             return true;
         }
     }
+    DEBUG("leaving translate_code_block (nest level = %d)", nest_level--);
     return true;
 }
 

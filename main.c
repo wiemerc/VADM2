@@ -15,7 +15,6 @@ int main(int argc, char **argv)
 {
     uint8_t *m68k_code_addr, *x86_code_addr;
     uint32_t m68k_code_size;
-    TranslationCache *tc;
 
     INFO("loading program");
     if (!load_program(argv[1], &m68k_code_addr, &m68k_code_size)) {
@@ -23,10 +22,10 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("translating code");
-    if ((tc = tc_init()) == NULL) {
+    if ((g_trcache = tc_init()) == NULL) {
         ERROR("initializing translation cache failed")
     }
-    if ((x86_code_addr = tc_get_next_block(tc)) == NULL) {
+    if ((x86_code_addr = tc_get_next_block(g_trcache)) == NULL) {
         ERROR("translating code failed");
         return 1;
     }

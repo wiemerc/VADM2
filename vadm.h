@@ -26,6 +26,9 @@
 // forward declaration of TranslationCache
 typedef struct TranslationCache TranslationCache;
 
+// global TranslationCache object
+TranslationCache *g_trcache;
+
 // function prototypes
 bool load_program(const char *fname, void **code_address, uint32_t *code_size);
 TranslationCache *tc_init();
