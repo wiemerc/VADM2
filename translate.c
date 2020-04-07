@@ -331,52 +331,6 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     return nbytes_used;
 }
 
-// Motorola M68000 Family Programmer’s Reference Manual, page 4-55
-// Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-488
-static int m68k_bra(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
-{
-    int32_t offset;
-    int      nbytes_used;
-
-    DEBUG("translating instruction BRA");
-    switch (m68k_opcode & 0x00ff) {
-        case 0x0000:
-            offset = (int16_t) read_word(inpos);
-            DEBUG("16-bit offset = %d", offset);
-            nbytes_used = 2;
-            break;
-        case 0x00ff:
-            offset = (int32_t) read_dword(inpos);
-            DEBUG("32-bit offset = %d", offset);
-            nbytes_used = 4;
-            break;
-        default:
-            offset = (int8_t) (m68k_opcode & 0x00ff);
-            DEBUG("8-bit offset = %d", offset);
-            nbytes_used = 0;
-    }
-
-    // recursively call translate_code_block() with the branch target as start address
-    // The offset of the branch target is calculated from the position after the *opcode*,
-    // so we need to subtract the number of bytes used for the offset itself.
-    uint8_t *branch_addr = tc_get_next_block(g_trcache);
-    if (!translate_code_block(*inpos + offset - nbytes_used, branch_addr, UINT32_MAX)) {
-        ERROR("failed to translate next translation unit (branch)")
-        return -1;
-    }
-
-    // offset in translated code = address of TU of branch - value of IP after branch instruction
-    // (unlike with the 680x0, it's the opcode *and* the offset with the x86, see above)
-    // To make things easier, we always use a 32-bit offset.
-    offset = branch_addr - (*outpos + 6);
-    // opcode
-    write_byte(0xe9, outpos);
-    write_dword(offset, outpos);
-
-    return nbytes_used;
-
-}
-
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     return -1;

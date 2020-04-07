@@ -24,9 +24,7 @@ loop_start:
     move.l      #msg, d1                /* text address, we can't use lea because it only works with address registers */
     jsr         PutStr(a6)
     subq.l      #1, d2                  /* decrement loop counter */
-    beq.s       loop_end
-    bra.s       loop_start
-loop_end:
+    bne.s       loop_start
 
 normal_exit:
     /* close DOS library */
