@@ -206,6 +206,12 @@ static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
+#ifdef TEST
+static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+{
+    return -1;
+}
+#else
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     int32_t offset;
@@ -275,6 +281,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
     return nbytes_used;
 }
+#endif
 
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
@@ -565,10 +572,11 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
 }
 
 
-#if TEST
+#ifdef TEST
 int main()
 {
     uint8_t buffer[16];
+    int retval = 0;
 
     // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
     for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_OPCODE_SIZE + 1) / 2; i++) {
@@ -580,7 +588,9 @@ int main()
         }
         else {
             ERROR("test case #%d failed", i);
+            ++retval;
         }
     }
+    return retval;
 }
 #endif
