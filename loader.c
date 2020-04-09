@@ -1,29 +1,12 @@
 //
 // loader.c - part of the Virtual AmigaDOS Machine (VADM)
-//            This file contains the loader for executables in Amiga Hunk format.
+//            contains the loader for executables in Amiga Hunk format
 //
 // Copyright(C) 2019, 2020 Constantin Wiemer
 // 
 
 
-#include <ctype.h>
-#include <fcntl.h>
-#include <netinet/in.h>         // for ntohs() and ntohl()
-#include <signal.h>
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/errno.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
-// Amiga OS headers
-#include <dos/doshunks.h>
-
+#include "loader.h"
 #include "vadm.h"
 
 
@@ -55,7 +38,7 @@ static void sigsegv(int signum)
 // TODO: code_size still needed?
 bool load_program(
     const char *fname,              // IN: name of the program image
-    void       **code_address,      // OUT: start address of the code (the HUNK_CODE block in the hunk)
+    uint8_t **code_address,         // OUT: start address of the code (the HUNK_CODE block in the hunk)
     uint32_t   *code_size           // OUT: size of the code block
 )
 {

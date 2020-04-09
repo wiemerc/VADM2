@@ -1,13 +1,14 @@
 //
-// loader.c - part of the Virtual AmigaDOS Machine (VADM)
-//            This file contains the main routine.
+// main.c - part of the Virtual AmigaDOS Machine (VADM)
+//          contains the main routine
 //
 // Copyright(C) 2019, 2020 Constantin Wiemer
 // 
 
 
-#include <limits.h>
-
+#include "loader.h"
+#include "tlcache.h"
+#include "translate.h"
 #include "vadm.h"
 
 
@@ -22,10 +23,10 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("translating code");
-    if ((g_trcache = tc_init()) == NULL) {
+    if ((g_tlcache = tc_init()) == NULL) {
         ERROR("initializing translation cache failed")
     }
-    if ((x86_code_addr = tc_get_next_block(g_trcache)) == NULL) {
+    if ((x86_code_addr = tc_get_next_block(g_tlcache)) == NULL) {
         ERROR("translating code failed");
         return 1;
     }

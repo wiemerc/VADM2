@@ -1,69 +1,14 @@
 //
 // translate.c - part of the Virtual AmigaDOS Machine (VADM)
-//               This file contains the routines for the binary translation from Motorola 680x0 to Intel x86-64 code.
+//               contains the routines for the binary translation from Motorola 680x0 to Intel x86-64 code
 //
 // Copyright(C) 2019, 2020 Constantin Wiemer
 // 
 
 
-#define _GNU_SOURCE
-#include <fcntl.h>
-#include <limits.h>
-#include <netinet/in.h>         // for ntohs() and ntohl()
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/errno.h>
-#include <sys/mman.h>
-#include <unistd.h>
-
-#include "vadm.h"
 #include "translate.h"
-
-
-//
-// routines that implement the translation cache
-//
-
-// initialize cache = allocate memory for the cache + the TranslationCache object, backed by a file
-TranslationCache *tc_init()
-{
-    int fd;
-    if ((fd = open("/tmp/vadm-tc.bin", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) {
-        ERROR("could not open output file: %s", strerror(errno));
-        return NULL;
-    }
-    if (fallocate(fd, 0, 0, sizeof(TranslationCache) + MAX_CODE_SIZE) == -1) {
-        ERROR("could not allocate disk space: %s", strerror(errno));
-        return NULL;
-    }
-    TranslationCache *tc;
-    if ((tc = mmap(NULL, sizeof(TranslationCache) + MAX_CODE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED) {
-        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
-        return NULL;
-    }
-    tc->tc_start_addr = ((uint8_t *) tc) + sizeof(TranslationCache);
-    tc->tc_next_addr = tc->tc_start_addr;
-    return tc;
-}
-
-// hand out next available block of size MAX_CODE_BLOCK_SIZE
-uint8_t *tc_get_next_block(TranslationCache *tc)
-{
-    uint8_t *baddr = NULL;
-    if (tc->tc_next_addr < (tc->tc_start_addr + MAX_CODE_SIZE)) {
-        baddr = tc->tc_next_addr;
-        tc->tc_next_addr += MAX_CODE_BLOCK_SIZE;
-        DEBUG("handing out block from translation cache at address %p", baddr);
-    }
-    else {
-        ERROR("no more free blocks available in translation cache");
-    }
-    return baddr;
-}
+#include "tlcache.h"
+#include "vadm.h"
 
 
 //
@@ -290,8 +235,8 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     // of bytes used for the offset itself.
     // This method was inspired by a paper describing how VMware does binary translation:
     // https://www.vmware.com/pdf/asplos235_adams.pdf
-    uint8_t *branch_taken_addr = tc_get_next_block(g_trcache);
-    uint8_t *branch_not_taken_addr = tc_get_next_block(g_trcache);
+    uint8_t *branch_taken_addr = tc_get_next_block(g_tlcache);
+    uint8_t *branch_not_taken_addr = tc_get_next_block(g_tlcache);
     if (!translate_code_block(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
         ERROR("failed to translate next translation unit (branch taken)")
         return -1;
@@ -366,6 +311,7 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-134
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     // immediate value as sign-extended 32-bit value
@@ -378,6 +324,7 @@ static int m68k_moveq(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     x86_encode_move_imm_to_dreg(value, reg, outpos);
     return 0;
 }
+#pragma GCC diagnostic pop
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-116
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
@@ -417,12 +364,14 @@ static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outp
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-169
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-553
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 static int m68k_rts(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     DEBUG("translating instruction RTS");
     write_byte(0xc3, outpos);
     return 0;
 }
+#pragma GCC diagnostic pop
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-181
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-654
@@ -530,6 +479,27 @@ static bool valid_ea_mode(uint16_t opcode, uint16_t mask)
 	}
 	return false;
 }
+
+
+//
+// opcode info table (copied from Musashi), with just the 8 instructions which are used
+// in the test program, needs to be sorted by the number of set bits in mask in descending
+// order to ensure the longest match wins
+//
+static const OpcodeInfo opcode_info_tbl[] = {
+//   opcode handler      mask    match   effective address mask     terminal y/n?
+    {m68k_rts          , 0xffff, 0x4e75, 0x000,                     true},       // rts
+    {m68k_tst_32       , 0xffc0, 0x4a80, 0xbf8,                     false},      // tst.l
+    {m68k_jsr          , 0xffc0, 0x4e80, 0x27b,                     false},      // jsr
+    {m68k_subq_32      , 0xf1c0, 0x5180, 0xff8,                     false},      // subq.l
+    {m68k_movea        , 0xf1c0, 0x2040, 0xfff,                     false},      // movea.*
+    {m68k_moveq        , 0xf100, 0x7000, 0x000,                     false},      // moveq.l
+    {m68k_bcc          , 0xf000, 0x6000, 0x000,                     true},       // bcc.*
+    {m68k_move         , 0xf000, 0x1000, 0xbff,                     false},      // move.b
+    {m68k_move         , 0xf000, 0x3000, 0xfff,                     false},      // move.w
+    {m68k_move         , 0xf000, 0x2000, 0xfff,                     false},      // move.l
+    {NULL, 0, 0, 0, false}
+};
 
 
 //

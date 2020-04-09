@@ -11,28 +11,30 @@ CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
 
 .PHONY: all clean
 
-all: vadm ptrace-test translate hello.bin
+all: vadm ptrace-test hello.bin loop
 
 clean:
-	rm -rf *.o *.dSYM vadm ptrace-test hello.bin
+	rm -rf *.o *.dSYM vadm ptrace-test translate hello.bin loop
 
 main.o: main.c vadm.h
 
-loader.o: loader.c vadm.h
+loader.o: loader.c loader.h vadm.h
 
-translate.o: translate.c translate.h
+translate.o: translate.c translate.h tlcache.h vadm.h
 
-translate: translate.c translate.h
+translate: translate.c translate.h tlcache.h vadm.h
 	$(CC) $(CFLAGS) -DTEST -o $@ translate.c
 
-vadm: main.o loader.o translate.o
+tlcache.o: tlcache.c tlcache.h vadm.h
+
+vadm: main.o loader.o translate.o tlcache.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 loop.o: loop.s
 	/opt/m68k-amigaos/bin/m68k-amigaos-as -o $@ $^
 
 loop: loop.o
-	/opt/m68k-amigaos/bin/m68k-amigaos-gcc -noixemul -nostdlib -o $@.bad $^ && python3 -c 'import sys; data = open(sys.argv[1] + ".bad", "rb").read(); fh = open(sys.argv[1], "wb"); pos = data.find(b"possible\x0a"); fh.write(data[0:pos + 12]); fh.write(data[pos + 16:]); fh.close()' $@ && rm $@.bad
+	/opt/m68k-amigaos/bin/m68k-amigaos-gcc -noixemul -nostdlib -o $@ $^
 
 %.o: %.s
 	$(AS) -o $@ $^
