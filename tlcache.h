@@ -6,14 +6,9 @@
 #ifndef TLCACHE_H_INCLUDED
 #define TLCACHE_H_INCLUDED
 
-#define _GNU_SOURCE
-#include <fcntl.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/errno.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 // constants
 #define MAX_CODE_SIZE   65536
@@ -37,12 +32,9 @@ struct TranslationCache
 };
 typedef struct TranslationCache TranslationCache;
 
-// pointer to global TranslationCache object
-TranslationCache *g_p_tlcache;
-
 // prototypes
 TranslationCache *tc_init();
-uint8_t *tc_alloc_block_for_addr(TranslationCache *p_tc, const uint8_t *p_src_addr);
-uint8_t *tc_get_block_by_addr(TranslationCache *p_tc, const uint8_t *p_src_addr);
+bool tc_put_addr(TranslationCache *p_tc, const uint8_t *p_src_addr, const uint8_t *p_dst_addr);
+uint8_t *tc_get_addr(TranslationCache *p_tc, const uint8_t *p_src_addr);
 
 #endif  // TLCACHE_H_INCLUDED

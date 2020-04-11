@@ -7,7 +7,6 @@
 
 
 #include "loader.h"
-#include "tlcache.h"
 #include "translate.h"
 #include "vadm.h"
 
@@ -23,14 +22,7 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("translating code");
-    if ((g_p_tlcache = tc_init()) == NULL) {
-        ERROR("initializing translation cache failed")
-    }
-    if ((x86_code_addr = tc_alloc_block_for_addr(g_p_tlcache, m68k_code_addr)) == NULL) {
-        ERROR("translating code failed");
-        return 1;
-    }
-    if (!translate_unit(m68k_code_addr, x86_code_addr, UINT32_MAX)) {
+    if ((x86_code_addr = translate_unit(m68k_code_addr, UINT32_MAX)) == NULL) {
         ERROR("translating code failed");
         return 1;
     }

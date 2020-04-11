@@ -44,7 +44,7 @@ typedef struct
 #define OP_IMM  3
 
 // prototypes
-bool translate_unit(const uint8_t *pin, uint8_t *pout, uint32_t ninstr_to_translate);
+uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate);
 
 // test case table, will be used if translate.c is compiled as standalone program
 #if TEST

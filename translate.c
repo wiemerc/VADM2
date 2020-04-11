@@ -252,33 +252,21 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     }
 
     // recursively call translate_unit() twice, once with the branch target as start address,
-    // once with the address of the following instruction, but only if the TUs are not in the cache.
+    // once with the address of the following instruction
     // The offset of the branch target is calculated from the position after the *opcode*,
     // so we need to subtract the number of bytes used for the offset itself.
     // This method was inspired by a paper describing how VMware does binary translation:
     // https://www.vmware.com/pdf/asplos235_adams.pdf
     uint8_t *branch_taken_addr, *branch_not_taken_addr;
-    if ((branch_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos + offset - nbytes_used)) == NULL) {
-        DEBUG("translating TU of branch taken");
-        branch_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos + offset - nbytes_used);
-        if (!translate_unit(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
-            ERROR("failed to translate next translation unit (branch taken)")
-            return -1;
-        }
+    DEBUG("translating TU of branch taken");
+    if ((branch_taken_addr = translate_unit(*inpos + offset - nbytes_used, UINT32_MAX)) == NULL) {
+        ERROR("failed to translate next translation unit (branch taken)")
+        return -1;
     }
-    else {
-        DEBUG("TU of branch taken already in cache");
-    }
-    if ((branch_not_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos)) == NULL) {
-        DEBUG("translating TU of branch not taken");
-        branch_not_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos);
-        if (!translate_unit(*inpos, branch_not_taken_addr, UINT32_MAX)) {
-            ERROR("failed to translate next translation unit (branch not taken)")
-            return -1;
-        }
-    }
-    else {
-        DEBUG("TU of branch not taken already in cache");
+    DEBUG("translating TU of branch not taken");
+    if ((branch_not_taken_addr = translate_unit(*inpos, UINT32_MAX)) == NULL) {
+        ERROR("failed to translate next translation unit (branch not taken)")
+        return -1;
     }
 
     // write offset
@@ -527,11 +515,13 @@ static const OpcodeInfo opcode_info_tbl[] = {
 //
 // translate a translation unit = block of code from Motorola 680x0 to Intel x86-64
 //
-bool translate_unit(const uint8_t *pin, uint8_t *pout, uint32_t ninstr_to_translate)
+uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
 {
+    uint8_t *p_x86_code;
     uint16_t opcode;
     int nbytes_used;
     static const OpcodeInfo *opcode_info_lookup_tbl[0x10000];
+    static TranslationCache *p_tlcache;
     static bool initialized = false;
     static uint8_t nest_level = 0;
 
@@ -559,33 +549,56 @@ bool translate_unit(const uint8_t *pin, uint8_t *pout, uint32_t ninstr_to_transl
                 }
             }
         }
+        DEBUG("initialzing translation cache");
+        if ((p_tlcache = tc_init()) == NULL) {
+            ERROR("initializing translation cache failed")
+        }
         initialized = true;
     }
+
+    // check if TU is in cache
+    if ((p_x86_code = tc_get_addr(p_tlcache, p_m68k_code)) != NULL) {
+        DEBUG("TU with source address %p is in cache - no translation necessary", p_m68k_code);
+        goto normal_exit;
+    }
+    else {
+        DEBUG("TU with source address %p not in cache - translating it", p_m68k_code);
+    }
+
+    // allocate block of memory for the translated code and put it into cache
+    // (ignoring any errors that might occur during the translation)
+    if ((p_x86_code = malloc(MAX_CODE_BLOCK_SIZE)) == NULL) {
+        ERROR("could not allocate memory");
+        return NULL;
+    }
+    tc_put_addr(p_tlcache, p_m68k_code, p_x86_code);
 
     // translate instructions one by one until we hit a terminal instruction or
     // the number of instructions to translate reaches 0
     // TODO: check if there is still enough space in the block
     while (ninstr_to_translate-- > 0) {
-        opcode = read_word(&pin);
+        opcode = read_word(&p_m68k_code);
 
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
         if (opcode_info_lookup_tbl[opcode])
-            nbytes_used = opcode_info_lookup_tbl[opcode]->opc_handler(opcode, &pin, &pout);
+            nbytes_used = opcode_info_lookup_tbl[opcode]->opc_handler(opcode, &p_m68k_code, &p_x86_code);
         else {
             ERROR("no handler found for opcode 0x%04x", opcode);
-            return false;
+            return NULL;
         }
         if (nbytes_used == -1) {
-            ERROR("could not decode instruction at position %p", pin - 2);
-            return false;
+            ERROR("could not decode instruction at position %p", p_m68k_code - 2);
+            return NULL;
         }
         if (opcode_info_lookup_tbl[opcode]->opc_terminal) {
-            DEBUG("instruction is the terminal instruction in this code block - leaving translate_unit (nest level = %d)", nest_level--);
-            return true;
+            DEBUG("instruction is the terminal instruction in this code block");
+            goto normal_exit;
         }
     }
-    DEBUG("leaving translate_unit (nest level = %d)", nest_level--);
-    return true;
+
+    normal_exit:
+        DEBUG("leaving translate_unit (nest level = %d)", nest_level--);
+        return p_x86_code;
 }
 
 
