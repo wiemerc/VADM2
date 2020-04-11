@@ -14,7 +14,7 @@ CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
 all: vadm ptrace-test hello.bin loop
 
 clean:
-	rm -rf *.o *.dSYM vadm ptrace-test translate hello.bin loop
+	rm -rf *.o *.dSYM vadm ptrace-test translate tlcache hello.bin loop
 
 main.o: main.c vadm.h
 
@@ -48,5 +48,6 @@ loop: loop.o
 history:
 	git log --format="format:%h %ci %s"
 
-tests: translate
+tests: translate tlcache
 	./translate
+	./tlcache
