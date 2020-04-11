@@ -10,39 +10,104 @@
 #include "vadm.h"
 
 
-// initialize cache = allocate memory for the cache + the TranslationCache object, backed by a file
+// The cache is implemented as a binary search tree and stores the mapping of source addresses
+// (original code) to destination addresses (translated code). The bits of the source address
+// are encoded as path through the tree, from the root node to the final node. The final node
+// stores the destination address, either as left or right "successor", depending on the value
+// of the LSB.
+
+// initialize TranslationCache object
 TranslationCache *tc_init()
 {
-    int fd;
-    if ((fd = open("/tmp/vadm-tc.bin", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) {
-        ERROR("could not open output file: %s", strerror(errno));
+    TranslationCache *p_tc;
+    if ((p_tc = malloc(sizeof(TranslationCache))) == NULL) {
+        ERROR("could not allocate memory");
         return NULL;
     }
-    if (fallocate(fd, 0, 0, sizeof(TranslationCache) + MAX_CODE_SIZE) == -1) {
-        ERROR("could not allocate disk space: %s", strerror(errno));
+    if ((p_tc->p_root_node = malloc(sizeof(TranslationCacheNode))) == NULL) {
+        ERROR("could not allocate memory");
         return NULL;
     }
-    TranslationCache *tc;
-    if ((tc = mmap(NULL, sizeof(TranslationCache) + MAX_CODE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)) == MAP_FAILED) {
-        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
-        return NULL;
-    }
-    tc->tc_start_addr = ((uint8_t *) tc) + sizeof(TranslationCache);
-    tc->tc_next_addr = tc->tc_start_addr;
-    return tc;
+    return p_tc;
 }
 
-// hand out next available block of size MAX_CODE_BLOCK_SIZE
-uint8_t *tc_get_next_block(TranslationCache *tc)
+// allocate block of size MAX_CODE_BLOCK_SIZE and store the corresponding source address in the cache
+uint8_t *tc_alloc_block_for_addr(TranslationCache *p_tc, const uint8_t *p_src_addr)
 {
-    uint8_t *baddr = NULL;
-    if (tc->tc_next_addr < (tc->tc_start_addr + MAX_CODE_SIZE)) {
-        baddr = tc->tc_next_addr;
-        tc->tc_next_addr += MAX_CODE_BLOCK_SIZE;
-        DEBUG("handing out block from translation cache at address %p", baddr);
+    // allocate block of memory
+    uint8_t *p_dst_addr;
+    if ((p_dst_addr = malloc(MAX_CODE_BLOCK_SIZE)) == NULL) {
+        ERROR("could not allocate memory");
+        return NULL;
     }
-    else {
-        ERROR("no more free blocks available in translation cache");
+
+    // store source address in cache
+    uint32_t curr_bit = 1 << (NUM_SOURCE_ADDR_BITS - 1);
+    TranslationCacheNode **pp_curr_node = &(p_tc->p_root_node);
+    while (curr_bit > 1) {
+        pp_curr_node = ((uint32_t) p_src_addr & curr_bit) ? &((*pp_curr_node)->p_left_node) : &((*pp_curr_node)->p_right_node);
+        if (*pp_curr_node == NULL) {
+            if ((*pp_curr_node = malloc(sizeof(TranslationCacheNode))) == NULL) {
+                ERROR("could not allocate memory");
+                return NULL;
+            }
+            (*pp_curr_node)->p_left_node = NULL;
+            (*pp_curr_node)->p_right_node = NULL;
+        }
+        curr_bit >>= 1;
     }
-    return baddr;
+    if ((uint32_t) p_src_addr & 1)
+        (*pp_curr_node)->p_left_node = (TranslationCacheNode *) p_dst_addr;
+    else
+        (*pp_curr_node)->p_right_node = (TranslationCacheNode *) p_dst_addr;
+    return p_dst_addr;
 }
+
+// lookup source address in the cache and return the corresponding block if found
+uint8_t *tc_get_block_by_addr(TranslationCache *p_tc, const uint8_t *p_src_addr)
+{
+    uint32_t curr_bit = 1 << (NUM_SOURCE_ADDR_BITS - 1);
+    TranslationCacheNode **pp_curr_node = &(p_tc->p_root_node);
+    while (curr_bit) {
+        pp_curr_node = ((uint32_t) p_src_addr & curr_bit) ? &((*pp_curr_node)->p_left_node) : &((*pp_curr_node)->p_right_node);
+        if (*pp_curr_node == NULL)
+                return NULL;
+        curr_bit >>= 1;
+    }
+    return (uint8_t *) *pp_curr_node;
+}
+
+
+//
+// unit tests
+//
+#ifdef TEST
+int main()
+{
+    int retval = 0;
+    TranslationCache *p_tc = tc_init();
+    uint8_t *p1, *p2;
+
+    if ((p1 = tc_alloc_block_for_addr(p_tc, (const uint8_t *) 0x5)) == NULL) {
+        ERROR("storing address 0x5 failed");
+        ++retval;
+    }
+    if ((p2 = tc_alloc_block_for_addr(p_tc, (const uint8_t *) 0x6)) == NULL) {
+        ERROR("storing address 0x5 failed");
+        ++retval;
+    }
+    if (tc_get_block_by_addr(p_tc, (const uint8_t *) 0x5) != p1) {
+        ERROR("looking up address 0x5 failed");
+        ++retval;
+    }
+    if (tc_get_block_by_addr(p_tc, (const uint8_t *) 0x6) != p2) {
+        ERROR("looking up address 0x6 failed");
+        ++retval;
+    }
+    if (tc_get_block_by_addr(p_tc, (const uint8_t *) 0x7) != NULL) {
+        ERROR("looking up address 0x7 succeeded");
+        ++retval;
+    }
+    return retval;
+}
+#endif

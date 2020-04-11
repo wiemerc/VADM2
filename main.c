@@ -23,10 +23,10 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("translating code");
-    if ((g_tlcache = tc_init()) == NULL) {
+    if ((g_p_tlcache = tc_init()) == NULL) {
         ERROR("initializing translation cache failed")
     }
-    if ((x86_code_addr = tc_get_next_block(g_tlcache)) == NULL) {
+    if ((x86_code_addr = tc_alloc_block_for_addr(g_p_tlcache, m68k_code_addr)) == NULL) {
         ERROR("translating code failed");
         return 1;
     }

@@ -9,6 +9,7 @@
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
@@ -17,19 +18,31 @@
 // constants
 #define MAX_CODE_SIZE   65536
 #define MAX_CODE_BLOCK_SIZE 256
+#ifdef TEST
+    #define NUM_SOURCE_ADDR_BITS 3
+#else
+    #define NUM_SOURCE_ADDR_BITS 21
+#endif
 
-// structure to implement the translation cache
-typedef struct
+// structures to implement the translation cache
+struct TranslationCacheNode
 {
-    uint8_t *tc_start_addr;             // address of the allocated memory block
-    uint8_t *tc_next_addr;              // address of the next code block (to be handed out)
-} TranslationCache;
+    struct TranslationCacheNode *p_left_node;
+    struct TranslationCacheNode *p_right_node;
+};
+typedef struct TranslationCacheNode TranslationCacheNode;
+struct TranslationCache
+{
+    TranslationCacheNode *p_root_node;  // root node of the binary tree used to look up addresses
+};
+typedef struct TranslationCache TranslationCache;
 
-// global TranslationCache object
-TranslationCache *g_tlcache;
+// pointer to global TranslationCache object
+TranslationCache *g_p_tlcache;
 
 // prototypes
 TranslationCache *tc_init();
-uint8_t *tc_get_next_block(TranslationCache *tc);
+uint8_t *tc_alloc_block_for_addr(TranslationCache *p_tc, const uint8_t *p_src_addr);
+uint8_t *tc_get_block_by_addr(TranslationCache *p_tc, const uint8_t *p_src_addr);
 
-#endif
+#endif  // TLCACHE_H_INCLUDED

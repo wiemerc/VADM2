@@ -27,6 +27,9 @@ translate: translate.c translate.h tlcache.h vadm.h
 
 tlcache.o: tlcache.c tlcache.h vadm.h
 
+tlcache: tlcache.c tlcache.h vadm.h
+	$(CC) $(CFLAGS) -DTEST -o $@ tlcache.c
+
 vadm: main.o loader.o translate.o tlcache.o
 	$(CC) $(LDFLAGS) -o $@ $^
 

@@ -235,28 +235,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             nbytes_used = 0;
     }
 
-    // recursively call translate_code_block() twice, once with the branch target as start address,
-    // once with the address of the following instruction. The offset of the branch target
-    // is calculated from the position after the *opcode*, so we need to subtract the number
-    // of bytes used for the offset itself.
-    // This method was inspired by a paper describing how VMware does binary translation:
-    // https://www.vmware.com/pdf/asplos235_adams.pdf
-    uint8_t *branch_taken_addr = tc_get_next_block(g_tlcache);
-    uint8_t *branch_not_taken_addr = tc_get_next_block(g_tlcache);
-    if (!translate_code_block(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
-        ERROR("failed to translate next translation unit (branch taken)")
-        return -1;
-    }
-    if (!translate_code_block(*inpos, branch_not_taken_addr, UINT32_MAX)) {
-        ERROR("failed to translate next translation unit (branch not taken)")
-        return -1;
-    }
-
-    // offset in translated code = address of TU of branch - value of IP after branch instruction
-    // (unlike with the 680x0, it's the opcode *and* the offset with the x86, see above)
-    // To make things easier, we always use the less compact 2-byte encoding with a 32-bit offset.
-    offset = branch_taken_addr - (*outpos + 6);
-    // opcode
+    // write opcode
     write_byte(0x0f, outpos);
     switch (m68k_opcode & 0x0f00) {
         case 0x0600:
@@ -271,7 +250,42 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             ERROR("condition 0x%x not supported", m68k_opcode & 0x0f00);
             return -1;
     }
-    // offset
+
+    // recursively call translate_code_block() twice, once with the branch target as start address,
+    // once with the address of the following instruction, but only if the TUs are not in the cache.
+    // The offset of the branch target is calculated from the position after the *opcode*,
+    // so we need to subtract the number of bytes used for the offset itself.
+    // This method was inspired by a paper describing how VMware does binary translation:
+    // https://www.vmware.com/pdf/asplos235_adams.pdf
+    uint8_t *branch_taken_addr, *branch_not_taken_addr;
+    if ((branch_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos + offset - nbytes_used)) == NULL) {
+        DEBUG("translating TU of branch taken");
+        branch_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos + offset - nbytes_used);
+        if (!translate_code_block(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
+            ERROR("failed to translate next translation unit (branch taken)")
+            return -1;
+        }
+    }
+    else {
+        DEBUG("TU of branch taken already in cache");
+    }
+    if ((branch_not_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos)) == NULL) {
+        DEBUG("translating TU of branch not taken");
+        branch_not_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos);
+        if (!translate_code_block(*inpos, branch_not_taken_addr, UINT32_MAX)) {
+            ERROR("failed to translate next translation unit (branch not taken)")
+            return -1;
+        }
+    }
+    else {
+        DEBUG("TU of branch not taken already in cache");
+    }
+
+    // write offset
+    // offset in translated code = address of TU of branch - value of IP after branch instruction
+    // (unlike with the 680x0, it's the opcode *and* the offset with the x86, see above)
+    // To make things easier, we always use the less compact 2-byte encoding with a 32-bit offset.
+    offset = branch_taken_addr - (*outpos + 6);
     write_dword(offset, outpos);
 
     // add absolute jump to the corresponding TU if branch is not taken
@@ -546,7 +560,6 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
 
     // translate instructions one by one until we hit a terminal instruction or the number of
     // instructions to translate reaches 0
-    // TODO: check if block already exists in cache
     // TODO: check if there is still enough space in the block
     while (ninstr_to_translate-- > 0) {
         opcode = read_word(&inptr);
@@ -572,6 +585,9 @@ bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr
 }
 
 
+//
+// unit tests
+//
 #ifdef TEST
 int main()
 {
