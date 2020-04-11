@@ -67,8 +67,10 @@ D0 - D7 => R8D - RD15
 30.06.2019      Wenn Python ein 64-Bit-Programm ist kann der 32-Bit-Code nicht funktionieren (und umgekehrt) => C-Version ausprobieren
                 Oder vielleicht die System Calls im Kind-Prozess mit ptrace() tracen?
 13.12.2019      C-Version funktioniert
-25.12.2019      Loader nach von C++ nach C portiert und angepasst
+25.12.2019      Loader von C++ nach C portiert und angepasst
 03.01.2020      Erste Instruktion (BCC) übersetzt
+06.03.2020      Alle Instruktionen ausser Sprünge (BRA, BCC, JSR) übersetzt
+11.04.2020      Sprünge auf Basis von Translation Units und mit einem Cache (wie bei VMware) implementiert
 
 
 ## Links
