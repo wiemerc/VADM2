@@ -251,7 +251,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             return -1;
     }
 
-    // recursively call translate_code_block() twice, once with the branch target as start address,
+    // recursively call translate_unit() twice, once with the branch target as start address,
     // once with the address of the following instruction, but only if the TUs are not in the cache.
     // The offset of the branch target is calculated from the position after the *opcode*,
     // so we need to subtract the number of bytes used for the offset itself.
@@ -261,7 +261,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     if ((branch_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos + offset - nbytes_used)) == NULL) {
         DEBUG("translating TU of branch taken");
         branch_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos + offset - nbytes_used);
-        if (!translate_code_block(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
+        if (!translate_unit(*inpos + offset - nbytes_used, branch_taken_addr, UINT32_MAX)) {
             ERROR("failed to translate next translation unit (branch taken)")
             return -1;
         }
@@ -272,7 +272,7 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     if ((branch_not_taken_addr = tc_get_block_by_addr(g_p_tlcache, *inpos)) == NULL) {
         DEBUG("translating TU of branch not taken");
         branch_not_taken_addr = tc_alloc_block_for_addr(g_p_tlcache, *inpos);
-        if (!translate_code_block(*inpos, branch_not_taken_addr, UINT32_MAX)) {
+        if (!translate_unit(*inpos, branch_not_taken_addr, UINT32_MAX)) {
             ERROR("failed to translate next translation unit (branch not taken)")
             return -1;
         }
@@ -505,7 +505,8 @@ static bool valid_ea_mode(uint16_t opcode, uint16_t mask)
 //
 // opcode info table (copied from Musashi), with just the 8 instructions which are used
 // in the test program, needs to be sorted by the number of set bits in mask in descending
-// order to ensure the longest match wins
+// order to ensure the longest match wins, lives here instead of in the header because
+// we don't want to export the handler functions
 //
 static const OpcodeInfo opcode_info_tbl[] = {
 //   opcode handler      mask    match   effective address mask     terminal y/n?
@@ -524,63 +525,66 @@ static const OpcodeInfo opcode_info_tbl[] = {
 
 
 //
-// translate a block of code from Motorola 680x0 to Intel x86-64
+// translate a translation unit = block of code from Motorola 680x0 to Intel x86-64
 //
-bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr_to_translate)
+bool translate_unit(const uint8_t *pin, uint8_t *pout, uint32_t ninstr_to_translate)
 {
     uint16_t opcode;
-    int      nbytes_used;
-    const OpcodeInfo *opcode_handler_tbl[0x10000];
+    int nbytes_used;
+    static const OpcodeInfo *opcode_info_lookup_tbl[0x10000];
+    static bool initialized = false;
     static uint8_t nest_level = 0;
 
-    DEBUG("entering translate_code_block (nest level = %d)", ++nest_level);
-    // build table with all 65536 possible opcodes and their handlers
+    DEBUG("entering translate_unit (nest level = %d)", ++nest_level);
+    // build table with all 65536 possible opcodes and their handlers on first run
     // (code is copied straight from Musashi)
-    // TODO: move to separate function which is called only once
-    DEBUG("building opcode handler table");
-    for(int i = 0; i < 0x10000; i++) {
-        opcode = (uint16_t) i;
-        // default is NULL
-        opcode_handler_tbl[opcode] = NULL;
-        // search through opcode info table for a match
-        for (const OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
-            // match opcode mask and allowed effective address modes
-            if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
-                // handle destination effective address modes for move instructions
-                if ((opcinfo->opc_handler == m68k_move) &&
-                     !valid_ea_mode(((opcode >> 9) & 7) | ((opcode >> 3) & 0x38), 0xbf8))
-                    continue;
-                if (valid_ea_mode(opcode, opcinfo->opc_ea_mask)) {
-                    opcode_handler_tbl[opcode] = opcinfo;
-                    break;
+    if (!initialized) {
+        DEBUG("building opcode handler table");
+        for(int i = 0; i < 0x10000; i++) {
+            opcode = (uint16_t) i;
+            // default is NULL
+            opcode_info_lookup_tbl[opcode] = NULL;
+            // search through opcode info table for a match
+            for (const OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
+                // match opcode mask and allowed effective address modes
+                if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
+                    // handle destination effective address modes for move instructions
+                    if ((opcinfo->opc_handler == m68k_move) &&
+                        !valid_ea_mode(((opcode >> 9) & 7) | ((opcode >> 3) & 0x38), 0xbf8))
+                        continue;
+                    if (valid_ea_mode(opcode, opcinfo->opc_ea_mask)) {
+                        opcode_info_lookup_tbl[opcode] = opcinfo;
+                        break;
+                    }
                 }
             }
         }
+        initialized = true;
     }
 
-    // translate instructions one by one until we hit a terminal instruction or the number of
-    // instructions to translate reaches 0
+    // translate instructions one by one until we hit a terminal instruction or
+    // the number of instructions to translate reaches 0
     // TODO: check if there is still enough space in the block
     while (ninstr_to_translate-- > 0) {
-        opcode = read_word(&inptr);
+        opcode = read_word(&pin);
 
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
-        if (opcode_handler_tbl[opcode])
-            nbytes_used = opcode_handler_tbl[opcode]->opc_handler(opcode, &inptr, &outptr);
+        if (opcode_info_lookup_tbl[opcode])
+            nbytes_used = opcode_info_lookup_tbl[opcode]->opc_handler(opcode, &pin, &pout);
         else {
             ERROR("no handler found for opcode 0x%04x", opcode);
             return false;
         }
         if (nbytes_used == -1) {
-            ERROR("could not decode instruction at position %p", inptr - 2);
+            ERROR("could not decode instruction at position %p", pin - 2);
             return false;
         }
-        if (opcode_handler_tbl[opcode]->opc_terminal) {
-            DEBUG("instruction is the terminal instruction in this code block - leaving translate_code_block (nest level = %d)", nest_level--);
+        if (opcode_info_lookup_tbl[opcode]->opc_terminal) {
+            DEBUG("instruction is the terminal instruction in this code block - leaving translate_unit (nest level = %d)", nest_level--);
             return true;
         }
     }
-    DEBUG("leaving translate_code_block (nest level = %d)", nest_level--);
+    DEBUG("leaving translate_unit (nest level = %d)", nest_level--);
     return true;
 }
 

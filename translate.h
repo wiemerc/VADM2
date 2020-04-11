@@ -19,6 +19,7 @@
 #define MAX_OPCODE_SIZE 8
 
 // structure describing an opcode
+// TODO: adapt to naming convention
 typedef int (*OpcodeHandlerFunc)(uint16_t, const uint8_t **, uint8_t **);
 typedef struct
 {
@@ -29,9 +30,7 @@ typedef struct
     bool     opc_terminal;              // terminal instruction in a translation unit
 } OpcodeInfo;
 
-//
 // structure describing an operand as returned by extract_operand()
-//
 typedef struct
 {
     uint8_t  op_type;                   // operand type: register, address, immediate value
@@ -45,11 +44,9 @@ typedef struct
 #define OP_IMM  3
 
 // prototypes
-bool translate_code_block(const uint8_t *inptr, uint8_t *outptr, uint32_t ninstr_to_translate);
+bool translate_unit(const uint8_t *pin, uint8_t *pout, uint32_t ninstr_to_translate);
 
-//
 // test case table, will be used if translate.c is compiled as standalone program
-//
 #if TEST
 static const uint8_t testcase_tbl[][2][MAX_OPCODE_SIZE + 1] = {
     // Motorola opcode, prefixed with number of bytes      // Intel opcode, prefixed with number of bytes

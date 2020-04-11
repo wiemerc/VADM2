@@ -30,7 +30,7 @@ int main(int argc, char **argv)
         ERROR("translating code failed");
         return 1;
     }
-    if (!translate_code_block(m68k_code_addr, x86_code_addr, UINT32_MAX)) {
+    if (!translate_unit(m68k_code_addr, x86_code_addr, UINT32_MAX)) {
         ERROR("translating code failed");
         return 1;
     }
