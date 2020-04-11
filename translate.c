@@ -11,6 +11,8 @@
 #include "vadm.h"
 
 
+// TODO: adapt to naming convention
+
 //
 // utility routines
 //
@@ -513,6 +515,36 @@ static const OpcodeInfo opcode_info_tbl[] = {
 
 
 //
+// initialize opcode info lookup table
+//
+static void init_opc_info_lookup_tbl (const OpcodeInfo **pp_opc_info_lookup_tbl)
+{
+    // build table with all 65536 possible opcodes and their handlers on first run
+    // (code is copied straight from Musashi)
+    uint16_t opcode;
+    for(int i = 0; i < 0x10000; i++) {
+        opcode = (uint16_t) i;
+        // default is NULL
+        pp_opc_info_lookup_tbl[opcode] = NULL;
+        // search through opcode info table for a match
+        for (const OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
+            // match opcode mask and allowed effective address modes
+            if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
+                // handle destination effective address modes for move instructions
+                if ((opcinfo->opc_handler == m68k_move) &&
+                    !valid_ea_mode(((opcode >> 9) & 7) | ((opcode >> 3) & 0x38), 0xbf8))
+                    continue;
+                if (valid_ea_mode(opcode, opcinfo->opc_ea_mask)) {
+                    pp_opc_info_lookup_tbl[opcode] = opcinfo;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+
+//
 // translate a translation unit = block of code from Motorola 680x0 to Intel x86-64
 //
 uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
@@ -520,35 +552,15 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
     uint8_t *p_x86_code;
     uint16_t opcode;
     int nbytes_used;
-    static const OpcodeInfo *opcode_info_lookup_tbl[0x10000];
+    static const OpcodeInfo *p_opc_info_lookup_tbl[0x10000];
     static TranslationCache *p_tlcache;
     static bool initialized = false;
     static uint8_t nest_level = 0;
 
     DEBUG("entering translate_unit (nest level = %d)", ++nest_level);
-    // build table with all 65536 possible opcodes and their handlers on first run
-    // (code is copied straight from Musashi)
     if (!initialized) {
         DEBUG("building opcode handler table");
-        for(int i = 0; i < 0x10000; i++) {
-            opcode = (uint16_t) i;
-            // default is NULL
-            opcode_info_lookup_tbl[opcode] = NULL;
-            // search through opcode info table for a match
-            for (const OpcodeInfo *opcinfo = opcode_info_tbl; opcinfo->opc_handler != NULL; opcinfo++) {
-                // match opcode mask and allowed effective address modes
-                if ((opcode & opcinfo->opc_mask) == opcinfo->opc_match) {
-                    // handle destination effective address modes for move instructions
-                    if ((opcinfo->opc_handler == m68k_move) &&
-                        !valid_ea_mode(((opcode >> 9) & 7) | ((opcode >> 3) & 0x38), 0xbf8))
-                        continue;
-                    if (valid_ea_mode(opcode, opcinfo->opc_ea_mask)) {
-                        opcode_info_lookup_tbl[opcode] = opcinfo;
-                        break;
-                    }
-                }
-            }
-        }
+        init_opc_info_lookup_tbl(p_opc_info_lookup_tbl);
         DEBUG("initialzing translation cache");
         if ((p_tlcache = tc_init()) == NULL) {
             ERROR("initializing translation cache failed")
@@ -580,8 +592,8 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
         opcode = read_word(&p_m68k_code);
 
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
-        if (opcode_info_lookup_tbl[opcode])
-            nbytes_used = opcode_info_lookup_tbl[opcode]->opc_handler(opcode, &p_m68k_code, &p_x86_code);
+        if (p_opc_info_lookup_tbl[opcode])
+            nbytes_used = p_opc_info_lookup_tbl[opcode]->opc_handler(opcode, &p_m68k_code, &p_x86_code);
         else {
             ERROR("no handler found for opcode 0x%04x", opcode);
             return NULL;
@@ -590,7 +602,7 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
             ERROR("could not decode instruction at position %p", p_m68k_code - 2);
             return NULL;
         }
-        if (opcode_info_lookup_tbl[opcode]->opc_terminal) {
+        if (p_opc_info_lookup_tbl[opcode]->opc_terminal) {
             DEBUG("instruction is the terminal instruction in this code block");
             goto normal_exit;
         }
