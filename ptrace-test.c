@@ -1,3 +1,4 @@
+#include <capstone/capstone.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
@@ -18,6 +19,8 @@ int main(int argc, char **argv)
     struct stat                 sb;             // buffer for fstat
     int fd, pid, status, i = 0;
     uint8_t *shmem;
+    csh handle;
+    cs_insn *insn;
 
     // map whole image into memory
     if ((fd = open(argv[1], O_RDONLY)) == -1) {
@@ -34,21 +37,27 @@ int main(int argc, char **argv)
     }
     printf("shared memory mapped at %p\n", shmem);
 
+    // initialize Capstone
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+        printf("could not initialize Capstone");
+        return 1;
+    }
+
     switch ((pid = fork())) {
         case 0:
             //
-			// child
+            // child
             //
 
             // allow parent to trace us
-			printf("child is starting...\n");
-			ptrace(PTRACE_TRACEME, 0, 0, 0);
+            printf("child is starting...\n");
+            ptrace(PTRACE_TRACEME, 0, 0, 0);
 
-			// send signal to ourselves to give control back to parent
-			kill(getpid(), SIGTRAP);
+            // send signal to ourselves to give control back to parent
+            kill(getpid(), SIGTRAP);
 
             // should normally not be reached...
-			printf("child is terminating...\n");
+            printf("child is terminating...\n");
             return 0;
 
         case -1:
@@ -61,18 +70,26 @@ int main(int argc, char **argv)
             //
 
             // wait for child
-            while(i < 3) {
+            while(i < 20) {
                 ++i;
                 pid = wait(&status);
-                printf("child gave control back to us\n");
+//                printf("child gave control back to us\n");
                 if (WIFSTOPPED(status)) {
-                    printf("child has been stopped by signal %s\n", strsignal(WSTOPSIG(status)));
+//                    printf("child has been stopped by signal %s\n", strsignal(WSTOPSIG(status)));
                     // if child is stopped, get registers and continue
                     if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1) {
                         perror("ptrace(PTRACE_GETREGS, ...) failed");
                         return 1;
                     }
-                    printf("current RIP = %p\n", regs.rip);
+                    if (cs_disasm(handle, regs.rip, 16, regs.rip, 1, &insn) > 0) {
+                        printf("RIP=%p:\t%s\t\t%s\n", insn[0].address, insn[0].mnemonic, insn[0].op_str);
+                        cs_free(insn, 1);
+                    }
+                    else {
+                        printf("could not disassemble instruction");
+                        return 1;
+                    }
+
                     if (i == 1) {
                         regs.rip = (unsigned long) shmem;
                         if (ptrace(PTRACE_SETREGS, pid, NULL, &regs) == -1) {
@@ -80,7 +97,7 @@ int main(int argc, char **argv)
                             return 1;
                         }
                     }
-                    ptrace(PTRACE_CONT, pid, 0, 0);
+                    ptrace(PTRACE_SINGLESTEP, pid, 0, 0);
                 }
                 else if (WIFEXITED(status)) {
                     printf("child has exited with status %d\n", WEXITSTATUS(status));
