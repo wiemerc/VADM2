@@ -597,18 +597,20 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
     // translate instructions one by one until we hit a terminal instruction or
     // the number of instructions to translate reaches 0
     // TODO: check if there is still enough space in the block
+    const uint8_t *p = p_m68k_code;
+    uint8_t *q = p_x86_code;
     while (ninstr_to_translate-- > 0) {
-        opcode = read_word(&p_m68k_code);
+        opcode = read_word(&p);
 
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
         if (p_opc_info_lookup_tbl[opcode])
-            nbytes_used = p_opc_info_lookup_tbl[opcode]->opc_handler(opcode, &p_m68k_code, &p_x86_code);
+            nbytes_used = p_opc_info_lookup_tbl[opcode]->opc_handler(opcode, &p, &q);
         else {
             ERROR("no handler found for opcode 0x%04x", opcode);
             return NULL;
         }
         if (nbytes_used == -1) {
-            ERROR("could not decode instruction at position %p", p_m68k_code - 2);
+            ERROR("could not decode instruction at position %p", p - 2);
             return NULL;
         }
         if (p_opc_info_lookup_tbl[opcode]->opc_terminal) {
