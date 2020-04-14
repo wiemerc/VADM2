@@ -48,6 +48,7 @@ bool tc_put_addr(TranslationCache *p_tc, const uint8_t *p_src_addr, const uint8_
         }
         curr_bit >>= 1;
     }
+    DEBUG("putting mapping %p -> %p into cache", p_src_addr, p_dst_addr);
     if ((uint32_t) p_src_addr & 1)
         (*pp_curr_node)->p_left_node = (TranslationCacheNode *) p_dst_addr;
     else
