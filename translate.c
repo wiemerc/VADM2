@@ -437,14 +437,13 @@ static int m68k_tst_32(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **ou
         return -1;
     }
     // prefix byte indicating extension of opcode register field (because we use registers R8D..R15D)
-    write_byte(0x41, outpos);
+    write_byte(0x45, outpos);
     // opcode
-    write_byte(0xf7, outpos);
+    write_byte(0x85, outpos);
     // register number
-    write_byte(0xc0 + op.op_value, outpos);
-    // value to test against as dword, always implicitly 0 with the TST instruction (Motorola),
-    // but has to be specified with the TEST instruction (Intel)
-    write_dword(0, outpos);
+    // With the Motorola TST instruction, the value to test against is implicitly 0, this has
+    // to be encoded as TEST <register>, <register> for Intel.
+    write_byte(0xc0 | (op.op_value << 3) | op.op_value, outpos);
     return nbytes_used;
 }
 
