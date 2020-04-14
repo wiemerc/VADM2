@@ -8,6 +8,7 @@
 CC      := gcc
 AS      := as
 CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
+LDLIBS  := -lcapstone
 
 .PHONY: all clean
 
@@ -15,6 +16,9 @@ all: vadm ptrace-test hello.bin loop
 
 clean:
 	rm -rf *.o *.dSYM vadm ptrace-test translate tlcache hello.bin loop
+
+ptrace-test: ptrace-test.c
+	$(CC) $(CFLAGS) -o $@ $^ -lcapstone
 
 main.o: main.c vadm.h
 
@@ -31,7 +35,7 @@ tlcache: tlcache.c tlcache.h vadm.h
 	$(CC) $(CFLAGS) -DTEST -o $@ tlcache.c
 
 vadm: main.o loader.o translate.o tlcache.o
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 loop.o: loop.s
 	/opt/m68k-amigaos/bin/m68k-amigaos-as -o $@ $^
@@ -48,6 +52,7 @@ loop: loop.o
 history:
 	git log --format="format:%h %ci %s"
 
+# TODO: fix tests
 tests: translate tlcache
 	./translate
 	./tlcache
