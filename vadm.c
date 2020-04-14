@@ -1,5 +1,5 @@
 //
-// main.c - part of the Virtual AmigaDOS Machine (VADM)
+// vadm.c - part of the Virtual AmigaDOS Machine (VADM)
 //          contains the main routine
 //
 // Copyright(C) 2019, 2020 Constantin Wiemer

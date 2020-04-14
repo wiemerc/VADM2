@@ -20,7 +20,7 @@ clean:
 ptrace-test: ptrace-test.c
 	$(CC) $(CFLAGS) -o $@ $^ -lcapstone
 
-main.o: main.c vadm.h
+vadm.o: vadm.c vadm.h
 
 loader.o: loader.c loader.h vadm.h
 
@@ -34,7 +34,7 @@ tlcache.o: tlcache.c tlcache.h vadm.h
 tlcache: tlcache.c tlcache.h vadm.h
 	$(CC) $(CFLAGS) -DTEST -o $@ tlcache.c
 
-vadm: main.o loader.o translate.o tlcache.o
+vadm: vadm.o loader.o translate.o tlcache.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 loop.o: loop.s
