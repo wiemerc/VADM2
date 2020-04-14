@@ -294,7 +294,6 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-119
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 4-35
-// TODO: replace address AbsExecBase (0x0000004) with the address where the base address of Exec library is stored
 static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     uint16_t mode_reg = m68k_opcode & 0x003f;
@@ -309,8 +308,12 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     }
     DEBUG("destination register is A%d", reg);
     nbytes_used = extract_operand(mode_reg, inpos, &op);
-    if (op.op_type == OP_MEM)
+    if (op.op_type == OP_MEM) {
+        // TODO: replace address AbsExecBase (0x0000004) with the address where the base address of Exec library is stored
+        if (op.op_value == 0x4)
+            op.op_value = 0x120000;
         x86_encode_move_mem_to_areg(op.op_value, reg, outpos);
+    }
     else if (op.op_type == OP_IMM)
         x86_encode_move_imm_to_areg(op.op_value, reg, outpos);
     else {
