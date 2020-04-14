@@ -32,6 +32,9 @@ TranslationCache *tc_init()
 }
 
 // put mapping of source address to destination address into cache (creates a new mapping or overwrite an existing mapping)
+// Treating p_src_addr as 32-bit integer is safe because the loader specifically allocates
+// memory below the 4GB boundary for all segments (and NUM_SOURCE_ADDR_BITS is less than 32).
+#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
 bool tc_put_addr(TranslationCache *p_tc, const uint8_t *p_src_addr, const uint8_t *p_dst_addr)
 {
     uint32_t curr_bit = 1 << (NUM_SOURCE_ADDR_BITS - 1);
@@ -70,6 +73,7 @@ uint8_t *tc_get_addr(TranslationCache *p_tc, const uint8_t *p_src_addr)
     }
     return (uint8_t *) *pp_curr_node;
 }
+#pragma GCC diagnostic pop
 
 
 //

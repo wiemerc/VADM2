@@ -11,8 +11,6 @@
 #include "vadm.h"
 
 
-// TODO: fix all warnings
-
 static bool exec_program(int (*p_code)())
 {
     int pid, status;
@@ -59,8 +57,8 @@ static bool exec_program(int (*p_code)())
                         }
 
                         // disassemble next instruction (the one pointed to by RIP)
-                        if (cs_disasm(handle, regs.rip, 16, regs.rip, 1, &insn) > 0) {
-                            DEBUG("RIP=%p:\t%s\t\t%s", insn[0].address, insn[0].mnemonic, insn[0].op_str);
+                        if (cs_disasm(handle, (uint8_t *) regs.rip, 16, regs.rip, 1, &insn) > 0) {
+                            DEBUG("RIP=%p:\t%s\t\t%s", (uint8_t *) insn[0].address, insn[0].mnemonic, insn[0].op_str);
                             cs_free(insn, 1);
                         }
                         else {
@@ -101,6 +99,10 @@ int main(int argc, char **argv)
     uint8_t *p_m68k_code_addr, *p_x86_code_addr;
     uint32_t m68k_code_size;
 
+    if (argc != 2) {
+        ERROR("usage: vadm <program to execute>");
+        return 1;
+    }
     INFO("loading program...");
     if (!load_program(argv[1], &p_m68k_code_addr, &m68k_code_size)) {
         ERROR("loading program failed");
@@ -112,7 +114,7 @@ int main(int argc, char **argv)
         return 1;
     }
     INFO("executing program...");
-    if (!exec_program(p_x86_code_addr)) {
+    if (!exec_program((int (*)()) p_x86_code_addr)) {
         ERROR("executing program failed");
         return 1;
     }
