@@ -272,13 +272,13 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     }
 
     // write offset
-    // offset in translated code = address of TU of branch - value of IP after branch instruction
-    // (unlike with the 680x0, it's the opcode *and* the offset with the x86, see above)
+    // offset in translated code = address of TU of branch - value of IP after branch instruction,
+    // not counting the opcode itself (so it's + 4 instead of +6)
     // To make things easier, we always use the less compact 2-byte encoding with a 32-bit offset.
-    offset = branch_taken_addr - (*outpos + 6);
+    offset = branch_taken_addr - (*outpos + 4);
     write_dword(offset, outpos);
 
-    // add absolute jump to the corresponding TU if branch is not taken
+    // add jump to the corresponding TU if branch is not taken, here the one byte for the opcode is included
     offset = branch_not_taken_addr - (*outpos + 5);
     write_byte(0xe9, outpos);
     write_dword(offset, outpos);
