@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdlib.h> 
+#include <sys/errno.h>
+#include <sys/mman.h>
 
 // constants
 #define MAX_CODE_SIZE   65536

@@ -581,8 +581,15 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
 
     // allocate block of memory for the translated code and put it into cache
     // (ignoring any errors that might occur during the translation)
-    if ((p_x86_code = malloc(MAX_CODE_BLOCK_SIZE)) == NULL) {
-        ERROR("could not allocate memory");
+    // We're wasting memory here because mmap() always maps a whole page (4KB on 64-bit Linux)
+    // but I didn't want to implement my own malloc().
+    if ((p_x86_code = mmap(NULL,
+                           MAX_CODE_BLOCK_SIZE,
+                           PROT_READ | PROT_WRITE | PROT_EXEC,
+                           MAP_ANON | MAP_PRIVATE,
+                           -1,
+                           0)) == MAP_FAILED) {
+        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
         return NULL;
     }
     tc_put_addr(p_tlcache, p_m68k_code, p_x86_code);
