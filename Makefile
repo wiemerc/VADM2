@@ -1,5 +1,6 @@
 #
-#  Makefile for the Virtual AmigaDOS Machine (VADM)
+#  Makefile - part of the Virtual AmigaDOS Machine (VADM)
+#			  global Makefile
 #
 # Copyright(C) 2019, 2020 Constantin Wiemer
 # 
@@ -8,14 +9,14 @@
 CC      := gcc
 AS      := as
 CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
-LDLIBS  := -lcapstone
+LDLIBS  := -lcapstone -ldl
 
 .PHONY: all clean
 
 all: vadm ptrace-test hello.bin loop
 
 clean:
-	rm -rf *.o *.dSYM vadm ptrace-test translate tlcache hello.bin loop
+	rm -rf *.o *.dSYM vadm ptrace-test translate tlcache execute hello.bin loop
 
 ptrace-test: ptrace-test.c
 	$(CC) $(CFLAGS) -o $@ $^ -lcapstone
@@ -34,7 +35,12 @@ tlcache.o: tlcache.c tlcache.h vadm.h
 tlcache: tlcache.c tlcache.h vadm.h
 	$(CC) $(CFLAGS) -DTEST -o $@ tlcache.c
 
-vadm: vadm.o loader.o translate.o tlcache.o
+execute.o: execute.c execute.h vadm.h
+
+execute: execute.c execute.h vadm.h
+	$(CC) $(CFLAGS) -DTEST -o $@ execute.c $(LDLIBS)
+
+vadm: vadm.o loader.o translate.o tlcache.o execute.o
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 loop.o: loop.s
@@ -53,6 +59,7 @@ history:
 	git log --format="format:%h %ci %s"
 
 # TODO: fix tests
-tests: translate tlcache
+tests: translate tlcache execute
 	./translate
 	./tlcache
+	./execute
