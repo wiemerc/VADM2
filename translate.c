@@ -64,6 +64,13 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
         DEBUG("operand is register A%d", mode_reg & 0x07);
         return 0;
     }
+    else if ((mode_reg & 0xf8) == 0x28) {
+        op->op_type = OP_AREG_OFFSET;
+        op->op_length = 4;
+        op->op_value = mode_reg & 0x07;
+        DEBUG("operand is register A%d with offset", mode_reg & 0x07);
+        return 0;
+    }
     else if (mode_reg == 0x38) {
         op->op_type = OP_MEM;
         op->op_length = 2;
@@ -287,9 +294,39 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
 }
 #endif
 
+// Motorola M68000 Family Programmer’s Reference Manual, page 4-109
+// Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-122
 static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
-    return -1;
+    uint16_t mode_reg = m68k_opcode & 0x003f;
+    int16_t offset;
+    Operand  op;
+    int      nbytes_used;
+
+    DEBUG("translating instruction JSR");
+    nbytes_used = extract_operand(mode_reg, inpos, &op);
+    if (op.op_type != OP_AREG_OFFSET) {
+        ERROR("only address register with offset supported as operand type");
+        return -1;
+    }
+    offset = (int16_t) read_word(inpos);
+    nbytes_used = 2;
+    if (op.op_value == 6) {
+        // special case: register is A6 => we assume this is a call of a library routine
+        // As the x86 doesn't support register + offset as operand for CALL, we need to
+        // insert an additional ADD instruction before the CALL.
+        write_byte(0x81, outpos);  // ADD
+        write_byte(0xc6, outpos);
+        write_dword(offset, outpos);
+        write_byte(0xff, outpos);  // CALL
+        write_byte(0xd6, outpos);
+    }
+    else {
+        ERROR("generic JSR instruction not supported");
+        return -1;
+    }
+
+    return nbytes_used;
 }
 
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-119

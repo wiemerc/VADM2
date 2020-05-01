@@ -40,10 +40,11 @@ typedef struct
     uint32_t op_value;                  // operand value
 } Operand;
 
-#define OP_AREG 0
-#define OP_DREG 1
-#define OP_MEM  2
-#define OP_IMM  3
+#define OP_AREG         0
+#define OP_DREG         1
+#define OP_MEM          2
+#define OP_IMM          3
+#define OP_AREG_OFFSET  4
 
 // prototypes
 uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate);
@@ -63,6 +64,7 @@ static const uint8_t testcase_tbl[][2][MAX_OPCODE_SIZE + 1] = {
     {{2, 0x26, 0x02},                                      {3, 0x45, 0x89, 0xd3}},                                  // move.l d2, d3 => mov r11d, r10d
     {{2, 0x53, 0x82},                                      {4, 0x41, 0x83, 0xea, 0x01}},                            // subq.l #1, d2 => sub, r10d, 1
     {{2, 0x4a, 0x80},                                      {3, 0x45, 0x85, 0xc0}},                                  // tst.l d0 => test r8d, r8d
+    {{4, 0x4e, 0xae, 0xfc, 0x4c},                          {8, 0x81, 0xc6, 0x4c, 0xfc, 0xff, 0xff, 0xff, 0xd6}},    // jsr -948(a6) => add esi, -948; call rsi
 };
 #endif
 
