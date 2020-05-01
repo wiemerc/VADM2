@@ -310,8 +310,10 @@ static int m68k_movea(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **out
     nbytes_used = extract_operand(mode_reg, inpos, &op);
     if (op.op_type == OP_MEM) {
         // TODO: replace address AbsExecBase (0x0000004) with the address where the base address of Exec library is stored
+#ifndef TEST
         if (op.op_value == 0x4)
             op.op_value = 0x120000;
+#endif
         x86_encode_move_mem_to_areg(op.op_value, reg, outpos);
     }
     else if (op.op_type == OP_IMM)
