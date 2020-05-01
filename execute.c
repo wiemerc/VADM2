@@ -44,7 +44,7 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
         p_entry_in_1st = p_lib_base + LIB_JUMP_TBL_SIZE - pfi->offset;
         if (pfi->p_func == NULL) {
             // function not implemented => interrupt
-            DEBUG("creating entry with interrupt for function %s()", pfi->p_name);
+//            DEBUG("creating entry with interrupt for function %s()", pfi->p_name);
             *p_entry_in_1st = OPCODE_INT_3;
         }
         else {
@@ -53,6 +53,8 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
             DEBUG("creating entry with jump for function %s()", pfi->p_name);
             *p_entry_in_1st = OPCODE_JMP_REL32;
             *((int32_t *) (p_entry_in_1st + 1)) = p_entry_in_2nd - (p_entry_in_1st + 5);
+            // TODO: p_entry_in_2nd += create_log_statement(p_entry_in_2nd, pfi->p_name);
+            // TODO: create function prolog that moves the arguments to the correct registers according to the ABI
             p_entry_in_2nd += create_absolute_jmp_to_func(p_entry_in_2nd, pfi->p_func);
         }
     }
@@ -73,18 +75,19 @@ uint8_t *load_library(const char *p_lib_name)
     }
 
     DEBUG("setting up library jump tables");
-    uint8_t *p_lib_base;
-    if ((p_lib_base = mmap(NULL,
+    static uint8_t *p_lib_base = (uint8_t *) LIB_BASE_START_ADDRESS;
+    if ((p_lib_base = mmap(p_lib_base,
                            LIB_JUMP_TBL_SIZE,
                            PROT_READ | PROT_WRITE | PROT_EXEC,
-                           MAP_ANON | MAP_PRIVATE,
+                           MAP_FIXED | MAP_ANON | MAP_PRIVATE,
                            -1,
                            0)) == MAP_FAILED) {
         ERROR("could not create memory mapping for library jump tables: %s", strerror(errno));
         return NULL;
     }
     setup_jump_tables(p_lib_base, dlsym(lh, "g_func_info_tbl"));
-    return p_lib_base + LIB_JUMP_TBL_SIZE;
+    p_lib_base += LIB_JUMP_TBL_SIZE;
+    return p_lib_base;
 }
 
 
@@ -94,7 +97,23 @@ uint8_t *load_library(const char *p_lib_name)
 #ifdef TEST
 int main()
 {
-    load_library("libs/libdos.so");
+
+    // call library functions via the jump tables
+    register uint8_t *p_lib_base asm("rsi");    // library base address
+    register char *p_lib_name asm("rcx");       // argument for OpenLibrary()
+    register char *p_str asm("r9");             // argument for PutStr()
+    p_lib_base = load_library("libs/libexec.so");
+    p_lib_name = "dos.library";
+    asm(
+        "add    $-552, %esi\n"
+        "call   *%rsi\n"
+        "mov    %r8d, %esi"
+    );
+    p_str = "So a scheener Dog\n";
+    asm(
+        "add    $-948, %esi\n"
+        "call   *%rsi\n"
+    );
     return 0;
 }
 #endif

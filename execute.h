@@ -7,11 +7,13 @@
 #define EXECUTE_H_INCLUDED
 
 #include <dlfcn.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
 
-#define LIB_JUMP_TBL_SIZE   8192
+#define LIB_BASE_START_ADDRESS 0x00200000
+#define LIB_JUMP_TBL_SIZE 8192
 #define OPCODE_INT_3        0xcc
 #define OPCODE_JMP_REL32    0xe9
 #define OPCODE_JMP_ABS64    0xff
@@ -23,4 +25,8 @@ typedef struct
     void     (*p_func)();
 } FuncInfo;
 
-#endif
+// TODO: exporting load_library() only doesn't work
+__attribute__ ((visibility("default"))) uint8_t *load_library(const char *p_lib_name);
+bool exec_program(int (*p_code)());
+
+#endif  // EXECUTE_H_INCLUDED
