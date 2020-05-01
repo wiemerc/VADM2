@@ -1,0 +1,8 @@
+*.o
+*.so
+.*
+vadm
+loop
+translate
+tlcache
+execute
