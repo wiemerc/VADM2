@@ -599,6 +599,8 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
     // translate instructions one by one until we hit a terminal instruction or
     // the number of instructions to translate reaches 0
     // TODO: check if there is still enough space in the block
+    // TODO: store name of instruction in table and print it here instead of in the handlers
+    // TODO: store position of mode / register byte in table and extract operand here
     const uint8_t *p = p_m68k_code;
     uint8_t *q = p_x86_code;
     while (ninstr_to_translate-- > 0) {
@@ -633,15 +635,13 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
 #ifdef TEST
 int main()
 {
-    uint8_t buffer[16];
     int retval = 0;
+    uint8_t *p_code;
 
     // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
     for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_OPCODE_SIZE + 1) / 2; i++) {
-        // start with the outpuf buffer set to a fixed value
-        memset(buffer, 0x55, 16);
-        translate_code_block(&testcase_tbl[i][0][1], buffer, 1);
-        if (memcmp(&testcase_tbl[i][1][1], buffer, testcase_tbl[i][1][0]) == 0) {
+        p_code = translate_unit(&testcase_tbl[i][0][1], 1);
+        if (memcmp(&testcase_tbl[i][1][1], p_code, testcase_tbl[i][1][0]) == 0) {
             INFO("test case #%d passed", i);
         }
         else {
