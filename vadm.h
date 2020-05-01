@@ -7,18 +7,8 @@
 #ifndef VADM_H_INCLUDED
 #define VADM_H_INCLUDED
 
-#include <capstone/capstone.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/ptrace.h>
-#include <sys/types.h>
-#include <sys/user.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
 
 // logging macros
 // TODO: add file name / line number
