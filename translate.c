@@ -216,10 +216,12 @@ static void x86_encode_move_dreg_to_dreg(uint8_t src, uint8_t dst, uint8_t **pos
 // Motorola M68000 Family Programmer’s Reference Manual, page 4-25
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, page 3-483
 #ifdef TEST
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
     return -1;
 }
+#pragma GCC diagnostic pop
 #else
 static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
 {
