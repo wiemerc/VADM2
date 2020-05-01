@@ -28,8 +28,9 @@ loader.o: loader.c loader.h vadm.h
 
 translate.o: translate.c translate.h tlcache.h vadm.h
 
-translate: translate.c translate.h tlcache.h vadm.h
-	$(CC) $(CFLAGS) -DTEST -o $@ translate.c
+translate: translate.c translate.h vadm.h tlcache.h tlcache.o
+	$(CC) $(CFLAGS) -DTEST -o translate.test.o -c translate.c
+	$(CC) $(CFLAGS) -o $@ translate.test.o tlcache.o
 
 tlcache.o: tlcache.c tlcache.h vadm.h
 
@@ -62,7 +63,6 @@ libs:
 history:
 	git log --format="format:%h %ci %s"
 
-# TODO: fix tests
 tests: translate tlcache execute
 	./translate
 	./tlcache
