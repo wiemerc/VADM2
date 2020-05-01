@@ -20,8 +20,8 @@ void dos_put_str()
     // 64-bit registers here. However, this is not a problem because every instruction in 64-bit
     // mode that uses a 32-bit register clears ("zero-extends") the upper 32 bits of the register
     // (see https://stackoverflow.com/questions/11177137/why-do-x86-64-instructions-on-32-bit-registers-zero-the-upper-part-of-the-full-6).
-    register const char *str asm("r9");     // D1 => R9D
-    write(1, str, strlen(str));
+    register const char *p_str asm("r9");     // D1 => R9D
+    write(1, p_str, strlen(p_str));
     // set return value
     asm("xorl %r8d, %r8d");                 // D0 => R8D
 }

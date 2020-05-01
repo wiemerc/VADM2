@@ -9,14 +9,14 @@
 CC      := gcc
 CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -fPIC
 LDFLAGS := -shared
+LDLIBS  := -lbsd
 
 .PHONY: all clean
 
-#all: libexec.so libdos.so
-all: libdos.so
+all: libexec.so libdos.so
 
 clean:
 	rm -rf *.o *.dSYM *.so
 
 %.so: %.o
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)

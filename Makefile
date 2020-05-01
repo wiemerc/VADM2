@@ -8,7 +8,7 @@
 
 CC      := gcc
 AS      := as
-CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g
+CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -rdynamic
 LDLIBS  := -lcapstone -ldl
 
 .PHONY: all clean libs tests history
