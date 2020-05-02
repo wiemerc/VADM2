@@ -112,7 +112,9 @@ bool exec_program(int (*p_code)())
         ERROR("could not create memory mapping for ABS_EXEC_BASE: %s", strerror(errno));
         return NULL;
     }
+    #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
     *p_abs_exec_base = (uint32_t) p_exec_base;
+    #pragma GCC diagnostic pop
 
     // create separate process for the program
     switch ((pid = fork())) {
