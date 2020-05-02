@@ -30,7 +30,9 @@ typedef struct
     void     (*p_func)();
 } FuncInfo;
 
-// TODO: exporting load_library() only doesn't work
+// see https://stackoverflow.com/questions/52719364/how-to-use-the-attribute-visibilitydefault and
+// https://stackoverflow.com/questions/36692315/what-exactly-does-rdynamic-do-and-when-exactly-is-it-needed
+// for details on how to export certain symbols only
 __attribute__ ((visibility("default"))) uint8_t *load_library(const char *p_lib_name);
 bool exec_program(int (*p_code)());
 

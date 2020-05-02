@@ -8,7 +8,7 @@
 
 CC      := gcc
 AS      := as
-CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -rdynamic
+CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -fvisibility=hidden
 LDFLAGS := -rdynamic
 LDLIBS  := -ldl
 
