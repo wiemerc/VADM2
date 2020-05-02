@@ -6,17 +6,13 @@
 #ifndef EXECUTE_H_INCLUDED
 #define EXECUTE_H_INCLUDED
 
-#include <capstone/capstone.h>
-#include <fcntl.h>
 #include <dlfcn.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
-#include <sys/types.h>
 #include <sys/user.h>
 #include <sys/wait.h>
 #include <unistd.h>

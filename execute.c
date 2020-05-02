@@ -94,31 +94,36 @@ uint8_t *load_library(const char *p_lib_name)
 bool exec_program(int (*p_code)())
 {
     int pid, status;
-    csh handle;
-    cs_insn *insn;
 
-    // initialize Capstone
-    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-        printf("could not initialize Capstone");
+    // load Exec library and store base address at ABS_EXEC_BASE
+    DEBUG("loading Exec library");
+    uint8_t *p_exec_base;
+    uint32_t *p_abs_exec_base;
+    if ((p_exec_base = load_library("libs/libexec.so")) == NULL) {
+        ERROR("could not load Exec library");
         return 1;
     }
-
-    // TODO: load Exec library and store base address at ABS_EXEC_BASE
+    if ((p_abs_exec_base = mmap((void *) ABS_EXEC_BASE,
+                           4,
+                           PROT_READ | PROT_WRITE | PROT_EXEC,
+                           MAP_FIXED | MAP_ANON | MAP_PRIVATE,
+                           -1,
+                           0)) == MAP_FAILED) {
+        ERROR("could not create memory mapping for ABS_EXEC_BASE: %s", strerror(errno));
+        return NULL;
+    }
+    *p_abs_exec_base = (uint32_t) p_exec_base;
 
     // create separate process for the program
     switch ((pid = fork())) {
         case 0:     // child
             DEBUG("child is starting...");
-            ptrace(PTRACE_TRACEME, 0, 0, 0);  // allow parent to trace us
-
-            pid = getpid();
-            kill(pid, SIGTRAP);  // tell parent to single-step us
-            p_code();            // call program
-            kill(pid, SIGCONT);  // tell parent to continue normally
-
+            // allow parent to trace us
+            ptrace(PTRACE_TRACEME, 0, 0, 0);
+            p_code();
             DEBUG("child is terminating...");
             // TODO: capture and return actual return value (in register R8D)
-            return true;
+            exit(0);
 
         case -1:    // error
             ERROR("fork() failed: %s", strerror(errno));
@@ -130,33 +135,18 @@ bool exec_program(int (*p_code)())
                 pid = wait(&status);
                 if (WIFSTOPPED(status)) {
                     DEBUG("child has been stopped by signal %s", strsignal(WSTOPSIG(status)));
-                    if (WSTOPSIG(status) == SIGTRAP) {
-                        // read registers (only RIP is relevant)
-                        struct user_regs_struct regs;
-                        if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1) {
-                            ERROR("reading registers failed: %s", strerror(errno));
-                            return false;
-                        }
-
-                        // disassemble next instruction (the one pointed to by RIP)
-                        if (cs_disasm(handle, (uint8_t *) regs.rip, 16, regs.rip, 1, &insn) > 0) {
-                            DEBUG("RIP=%p:\t%s\t\t%s", (uint8_t *) insn[0].address, insn[0].mnemonic, insn[0].op_str);
-                            cs_free(insn, 1);
-                        }
-                        else {
-                            ERROR("could not disassemble instruction");
-                            return false;
-                        }
-
-                        // execute next instruction
-                        ptrace(PTRACE_SINGLESTEP, pid, 0, 0);
+                    struct user_regs_struct regs;
+                    if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1) {
+                        ERROR("reading registers failed: %s", strerror(errno));
+                        return false;
                     }
-                    else if (WSTOPSIG(status) == SIGCONT) {
-                        DEBUG("continuing program normally");
-                        ptrace(PTRACE_CONT, pid, 0, 0);
+
+                    if (WSTOPSIG(status) == SIGTRAP) {
+                        ERROR("program called unimplemented library routine - terminating");
+                        return false;
                     }
                     else {
-                        ERROR("signal other than SIGTRAP or SIGCONT received - terminating");
+                        ERROR("signal other than SIGTRAP received - terminating");
                         return false;
                     }
                 }
