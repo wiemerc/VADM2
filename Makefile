@@ -10,18 +10,15 @@ CC      := gcc
 AS      := as
 CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -rdynamic
 LDFLAGS := -rdynamic
-LDLIBS  := -lcapstone -ldl
+LDLIBS  := -ldl
 
 .PHONY: all clean libs tests history
 
-all: vadm ptrace-test hello.bin loop libs
+all: vadm loop libs
 
 clean:
-	rm -rf *.o *.dSYM vadm ptrace-test translate tlcache execute hello.bin loop
+	rm -rf *.o *.dSYM vadm translate tlcache execute loop
 	$(MAKE) --directory=libs clean
-
-ptrace-test: ptrace-test.c
-	$(CC) $(CFLAGS) -o $@ $^ -lcapstone
 
 vadm.o: vadm.c vadm.h
 
@@ -54,9 +51,6 @@ loop: loop.o
 
 %.o: %.s
 	$(AS) -o $@ $^
-
-%.bin: %.o
-	objcopy -O binary $< $@
 
 libs:
 	$(MAKE) --directory=$@
