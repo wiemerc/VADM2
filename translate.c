@@ -316,12 +316,16 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
     if (op.op_value == 6) {
         // special case: register is A6 => we assume this is a call of a library routine
         // As the x86 doesn't support register + offset as operand for CALL, we need to
-        // insert an additional ADD instruction before the CALL.
-        write_byte(0x81, outpos);  // ADD
+        // insert an additional ADD instruction before the CALL, but of course we have
+        // to save the old value and restore it after the call.
+        // TODO save all registers that were saved by the AmigaOS because they could be altered by the called function
+        write_byte(0x56, outpos);  // push rsi
+        write_byte(0x81, outpos);  // add esi, <offset>
         write_byte(0xc6, outpos);
         write_dword(offset, outpos);
-        write_byte(0xff, outpos);  // CALL
+        write_byte(0xff, outpos);  // call rsi
         write_byte(0xd6, outpos);
+        write_byte(0x5e, outpos);  // pop rsi
     }
     else {
         ERROR("generic JSR instruction not supported");
