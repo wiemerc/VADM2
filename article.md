@@ -32,14 +32,14 @@ Neuer Ansatz:
 * Übersetzen von einzelnen [Basic Blocks](https://en.wikipedia.org/wiki/Basic_block) und Ablage des übersetzten Codes in einzelnen Speicherblöcken
 * Jeder Sprungbefehl erzeugt einen neuen Block, Sprungziel = Adresse des Blocks
 * Blöcke werden auf Stack abgelegt und rekursiv übersetzt (weil in einem Block auf dem Stack wieder ein Sprungbefehl vorkommen kann)
-* Der gleiche Ansatz könnte auch zum dynamischen Übersetzen (zur Laufzeit) verwendet werden => neue Blöcke würden erstmal nur eine INT-Instruktion und die Adresse des zu übersetzenden Codes enthalten => Kontrolle würde an den Monitor-Prozess zurückgegeben werden, der den Code übersetzt (so ähnlich wie bei Overlays).
+* Der gleiche Ansatz könnte auch zum dynamischen Übersetzen (zur Laufzeit) verwendet werden => Verzweigungen legen die Adresse des zu übersetzenden Codes auf den Stack und rufen Funktion auf, die Interrupt erzeugt => Kontrolle wird an den Monitor-Prozess zurückgegeben, der den Code übersetzt und die Verzweigung patcht, so dass der übersetzte Code aufgerufen wird (so ähnlich wie bei Overlays).
 
 Bibliothek mit Listen und anderen Datenstrukturen: https://jlk.fjfi.cvut.cz/arch/manpages/listing/extra/libbsd/
 
 
 ## Emulation der Systemroutinen
 
-Jede Bibliothek (auch Exec) wird durch eine separate Shared Library implementiert. Diese Bibliotheken werden vom Kindprozess mit `dlopen` geladen (damit sie im Adressraum des Kindprozesses zur Verfügung stehen). Jede Bibliothek hat ein Funktion zum Erzeugen der Sprungtabelle. Diese Sprungtabelle besteht im Normal aus den Instruktionen `INT x` und `RET` für jede Routine. Nur für die implementierten Routinen wird ein `JMP` zur eigentlichen Routine durchgeführt. Der Interrupt für die nichtimplementierten Routinen wird vom Supervisor-Prozess behandelt.
+Jede Bibliothek (auch Exec) wird durch eine separate Shared Library implementiert. Diese Bibliotheken werden vom Kindprozess mit `dlopen` geladen (damit sie im Adressraum des Kindprozesses zur Verfügung stehen). Jede Bibliothek hat ein Funktion zum Erzeugen der Sprungtabelle. Diese Sprungtabelle besteht im Normalfall aus den Instruktionen `INT x` und `RET` für jede Routine. Nur für die implementierten Routinen wird ein `JMP` zur eigentlichen Routine durchgeführt. Der Interrupt für die nichtimplementierten Routinen wird vom Supervisor-Prozess behandelt.
 
 
 ## Register-Mapping
@@ -72,6 +72,7 @@ D0 - D7 => R8D - RD15
 06.03.2020      Alle Instruktionen ausser Sprünge (BRA, BCC, JSR) übersetzt
 11.04.2020      Sprünge auf Basis von Translation Units und mit einem Cache (wie bei VMware) implementiert
 14.04.2020      Übersetzter Code (ohne Systemroutinen) wird ausgeführt
+02.05.2020      Programm wird vollständig ausgeführt :-)
 
 
 ## Links
@@ -83,4 +84,5 @@ D0 - D7 => R8D - RD15
 * <https://en.wikibooks.org/wiki/X86_Assembly>
 * Binary Tranlation in VMware: https://www.vmware.com/pdf/asplos235_adams.pdf
 * https://www.nxp.com/files-static/archives/doc/ref_manual/M68000PRM.pdf
+* http://x86asm.net/articles/x86-64-tour-of-intel-manuals/
 * https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.pdf
