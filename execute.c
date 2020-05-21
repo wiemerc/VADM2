@@ -10,6 +10,36 @@
 #include "vadm.h"
 
 
+static void log_func_name(const char *p_func_name)
+{
+    DEBUG("calling function %s()", p_func_name);
+}
+
+
+static uint8_t create_call_to_log_func_name(uint8_t *p_code, const char *p_func_name)
+{
+    // mov rdi, p_func_name
+    // RDI holds the 1st function argument in the x86-64 ABI
+    p_code[0] = 0x48;  // REX.W prefix
+    p_code[1] = 0xbf;  // MOV opcode + register
+    *((const char **) (p_code + 2)) = p_func_name;
+    // mov rax, log_func_name
+    p_code[10] = 0x48;  // REX.W prefix
+    p_code[11] = 0xb8;  // MOV opcode + register
+    *((void (**)()) (p_code + 12)) = log_func_name;
+    // call rax
+    p_code[20] = 0xff;  // CALL opcode
+    p_code[21] = 0xd0;  // MOD-REG-R/M byte
+    return 22;  // number of bytes written
+}
+
+
+static uint8_t create_move_args_thunk(uint8_t *p_code, uint8_t *p_arg_regs)
+{
+    // TODO: move the arguments to the correct registers according to the ABI
+}
+
+
 static uint8_t create_absolute_jmp_to_func(uint8_t *p_code, void (*p_func)())
 {
     p_code[0] = OPCODE_JMP_ABS64;
@@ -53,8 +83,8 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
             DEBUG("creating entry with jump for function %s()", pfi->p_name);
             *p_entry_in_1st = OPCODE_JMP_REL32;
             *((int32_t *) (p_entry_in_1st + 1)) = p_entry_in_2nd - (p_entry_in_1st + 5);
-            // TODO: p_entry_in_2nd += create_log_statement(p_entry_in_2nd, pfi->p_name);
-            // TODO: create function prolog that moves the arguments to the correct registers according to the ABI
+            p_entry_in_2nd += create_call_to_log_func_name(p_entry_in_2nd, pfi->p_name);
+//            p_entry_in_2nd += create_move_args_thunk(p_entry_in_2nd, pfi->arg_regs);
             p_entry_in_2nd += create_absolute_jmp_to_func(p_entry_in_2nd, pfi->p_func);
         }
     }
