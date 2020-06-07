@@ -29,6 +29,8 @@
 #define OPCODE_MOV_IMM64_REG    0xb8
 #define OPCODE_RET              0xc3
 #define OPCODE_AND_IMM8         0x83
+#define OPCODE_PUSH_REG         0x50
+#define OPCODE_POP_REG          0x58
 #define PREFIX_REXB             0x41
 #define PREFIX_REXR             0x44
 #define PREFIX_REXW             0x48
@@ -38,10 +40,14 @@
 #define WRITE_DWORD(p_pos, val) {*((uint32_t *) p_pos) = (val); p_pos += 4;}
 #define WRITE_QWORD(p_pos, val) {*((uint64_t *) p_pos) = (val); p_pos += 8;}
 
-// register numbers as used by MOV instructions
-enum x86_64_registers {
+// register numbers as used by MOV instructions, 32 and 64 bit registers
+enum x86_32_registers {
     REG_R8D, REG_R9D, REG_R10D, REG_R11D, REG_R12D, REG_R13D, REG_R14D, REG_R15D,
     REG_EAX, REG_ECX, REG_EDX, REG_EBX, REG_ESP, REG_EBP, REG_ESI, REG_EDI
+};
+enum x86_64_registers {
+    REG_R8, REG_R9, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15,
+    REG_RAX, REG_RCX, REG_RDX, REG_RBX, REG_RSP, REG_RBP, REG_RSI, REG_RDI
 };
 
 typedef struct

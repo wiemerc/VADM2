@@ -10,6 +10,27 @@
 #include "vadm.h"
 
 
+// mapping of 680x0 to x86 registers, the 680x0 registers are numbered from 0 to 15 consecutive (D0..D7 and A0..A7)
+static uint8_t x86_reg_for_m68k_reg[] = {
+    REG_R8D,
+    REG_R9D,
+    REG_R10D,
+    REG_R11D,
+    REG_R12D,
+    REG_R13D,
+    REG_R14D,
+    REG_R15D,
+    REG_EAX,
+    REG_ECX,
+    REG_EDX,
+    REG_EBX,
+    REG_EDI,    // swapped with ESP
+    REG_EBP,
+    REG_ESI,
+    REG_ESP     // swapped with EDI
+};
+
+
 // registers used for passing arguments to functions as specified by the x86-64 ABI
 static uint8_t regs_for_func_args[] = {
     REG_EDI,
@@ -21,30 +42,16 @@ static uint8_t regs_for_func_args[] = {
 };
 
 
-static uint8_t *encode_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst)
+static uint8_t *emit_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst)
 {
-    // As the source register number is the number of the 680x0 register, we have to differentiate
-    // between data and address registers. If it's a data registers (number 0-7), we have to use
-    // the REX.R prefix because we use the extended registers R8D..R15D. If it's a address register,
-    // (numbers 8-15), we subtract 8 from the number because the address registers are numbered 8-15
-    // in the libcall / syscall pragmas and swap the numbers of A4 and A7 in order to map A7 to ESP
-    // (with all other registers, we can use the same numbers as the 680x0 uses).
-    // If the destination register is an extended register (R8D or R9D for the 5th or 6th argument),
-    // we have to use the REX.B prefix, otherwise we have to subtract 8 as well.
     uint8_t prefix = 0;
     if (src < 8) {
+        // extended registers R8D..R15D
         prefix |= PREFIX_REXR;
     }
     else {
+        // registers EAX..EDI, also encoded as number 0..7, but without a prefix
         src -= 8;
-        switch (src) {
-            case 4:
-                src = 7;
-                break;
-            case 7:
-                src = 4;
-                break;
-        }
     }
     if (dst < 8) {
         prefix |= PREFIX_REXB;
@@ -56,17 +63,51 @@ static uint8_t *encode_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst)
         WRITE_BYTE(p_pos, prefix);
     }
     WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
-    // MOD-REG-R/M byte with register numbers, mode = 11, source register goes into REG part,
+    // MOD-REG-R/M byte with register numbers, mode = 11 (register only), source register goes into REG part,
     // destination register into R/M part
     WRITE_BYTE(p_pos, 0xc0 | (src << 3) | dst);
     return p_pos;
 }
 
 
-static uint8_t *create_absolute_call_to_func(uint8_t *p_pos, void (*p_func)())
+static uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg)
 {
-    // push rbp, save old value because EBP = A5 needs to be preserved in AmigaOS
-    WRITE_BYTE(p_pos, 0x55);
+    uint8_t prefix = 0;
+    if (reg < 8) {
+        prefix = PREFIX_REXB;
+    }
+    else {
+        reg -= 8;
+    }
+    if (prefix != 0) {
+        WRITE_BYTE(p_pos, prefix);
+    }
+    WRITE_BYTE(p_pos, OPCODE_PUSH_REG + reg);
+    return p_pos;
+}
+
+
+static uint8_t *emit_pop_reg(uint8_t *p_pos, uint8_t reg)
+{
+    uint8_t prefix = 0;
+    if (reg < 8) {
+        prefix = PREFIX_REXB;
+    }
+    else {
+        reg -= 8;
+    }
+    if (prefix != 0) {
+        WRITE_BYTE(p_pos, prefix);
+    }
+    WRITE_BYTE(p_pos, OPCODE_POP_REG + reg);
+    return p_pos;
+}
+
+
+static uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
+{
+    // save old value of RBP because EBP = A5 needs to be preserved in AmigaOS
+    p_pos = emit_push_reg(p_pos, REG_RBP);
     // mov rbp, rsp, save old value of RSP before aligning it
     WRITE_BYTE(p_pos, PREFIX_REXW);
     WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
@@ -88,13 +129,12 @@ static uint8_t *create_absolute_call_to_func(uint8_t *p_pos, void (*p_func)())
     WRITE_BYTE(p_pos, PREFIX_REXW);
     WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
     WRITE_BYTE(p_pos, 0xec);
-    // pop rbp
-    WRITE_BYTE(p_pos, 0x5d);
+    p_pos = emit_pop_reg(p_pos, REG_RBP);
     return p_pos;
 }
 
 
-static uint8_t *create_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
+static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
     // move the arguments to the correct registers according to the ABI
     // p_arg_regs is the string taken from the libcall / syscall pragmas specifying the
@@ -105,17 +145,17 @@ static uint8_t *create_thunk_for_func(uint8_t *p_pos, const char *p_func_name, v
     sscanf(p_arg_regs + strlen(p_arg_regs) - 1, "%1hhx", &nargs);
     for (argnum = 0; argnum < nargs; argnum++) {
         sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
-        p_pos = encode_move_reg_to_reg(p_pos, regnum, regs_for_func_args[nargs - argnum - 1]);
+        p_pos = emit_move_reg_to_reg(p_pos, x86_reg_for_m68k_reg[regnum], regs_for_func_args[nargs - argnum - 1]);
     }
 
     // TODO: raise interrupt to have the supervisor process log the function name
     // TODO: save all registers that need to be preserved in AmigaOS because they could be altered by the called function
     //       (see Amiga Guru book, page 45 for details)
-    p_pos = create_absolute_call_to_func(p_pos, p_func);
+    p_pos = emit_abs_call_to_func(p_pos, p_func);
 
     // move return value from RAX to the register specified by the libcall / syscall pragama (usually R8D = D0)
     sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
-    p_pos = encode_move_reg_to_reg(p_pos, REG_EAX, regnum);
+    p_pos = emit_move_reg_to_reg(p_pos, REG_EAX, regnum);
     WRITE_BYTE(p_pos, OPCODE_RET);
     return p_pos;
 }
@@ -151,7 +191,7 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
             DEBUG("creating entry with jump and thunk for function %s()", pfi->p_name);
             *p_entry_in_1st = OPCODE_JMP_REL32;
             *((int32_t *) (p_entry_in_1st + 1)) = p_entry_in_2nd - (p_entry_in_1st + 5);
-            p_entry_in_2nd = create_thunk_for_func(p_entry_in_2nd, pfi->p_name, pfi->p_func, pfi->p_arg_regs);
+            p_entry_in_2nd = emit_thunk_for_func(p_entry_in_2nd, pfi->p_name, pfi->p_func, pfi->p_arg_regs);
         }
     }
 }
