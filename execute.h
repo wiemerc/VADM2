@@ -42,7 +42,13 @@
 #define WRITE_DWORD(p_pos, val) {*((uint32_t *) p_pos) = (val); p_pos += 4;}
 #define WRITE_QWORD(p_pos, val) {*((uint64_t *) p_pos) = (val); p_pos += 8;}
 
-// register numbers as used in the instruction encodings, 32 and 64 bit registers
+// register numbers as used by the 680x0
+enum m68k_registers {
+    REG_D0, REG_D1, REG_D2, REG_D3, REG_D4, REG_D5, REG_D6, REG_D7,
+    REG_A0, REG_A1, REG_A2, REG_A3, REG_A4, REG_A5, REG_A6, REG_A7
+};
+
+// register numbers as used in the instruction encodings for the x86, 32 and 64 bit registers
 enum x86_32_registers {
     REG_R8D, REG_R9D, REG_R10D, REG_R11D, REG_R12D, REG_R13D, REG_R14D, REG_R15D,
     REG_EAX, REG_ECX, REG_EDX, REG_EBX, REG_ESP, REG_EBP, REG_ESI, REG_EDI

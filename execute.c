@@ -30,6 +30,18 @@ static uint8_t x86_reg_for_m68k_reg[] = {
     REG_ESP     // swapped with EDI
 };
 
+// registers that need to be preserved in AmigaOS, see Amiga Guru book, page 45, for details
+// The frame (A5) and stack (A7) pointers don't need to be saved / restored by us because
+// the prolog / epilog of the called function take care of that. Registers D4-D7 (R12D-R15D)
+// and A3 (EBX) don't need to be saved / restored by us either because they're preserved by
+// the called function according to the x86-64 ABI.
+static uint8_t regs_to_preserve[] = {
+    REG_D2,
+    REG_D3,
+    REG_A2,
+    REG_A4,
+    REG_A6,
+};
 
 // registers used for passing arguments to functions as specified by the x86-64 ABI
 static uint8_t regs_for_func_args[] = {
@@ -134,6 +146,14 @@ static uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
 
 static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
+    // TODO: raise interrupt to have the supervisor process log the function name
+
+    // save all registers that need to be preserved in AmigaOS because they could be altered by the called function
+    int8_t i;
+    for (i = 0; i <= (int8_t) (sizeof(regs_to_preserve) / sizeof(regs_to_preserve[0]) - 1); i++) {
+        p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[regs_to_preserve[i]]);
+    }
+
     // move the arguments to the correct registers according to the ABI
     // p_arg_regs is the string taken from the libcall / syscall pragmas specifying the
     // registers which are used for function arguments and the return value (usually R8D = D0).
@@ -146,14 +166,19 @@ static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, voi
         p_pos = emit_move_reg_to_reg(p_pos, x86_reg_for_m68k_reg[regnum], regs_for_func_args[nargs - argnum - 1], MODE_32);
     }
 
-    // TODO: raise interrupt to have the supervisor process log the function name
-    // TODO: save all registers that need to be preserved in AmigaOS because they could be altered by the called function
-    //       (see Amiga Guru book, page 45 for details)
+    // call function
     p_pos = emit_abs_call_to_func(p_pos, p_func);
 
     // move return value from EAX to the register specified by the libcall / syscall pragama (usually R8D = D0)
     sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
     p_pos = emit_move_reg_to_reg(p_pos, REG_EAX, regnum, MODE_32);
+
+    // restore registers
+    for (i = (int8_t) (sizeof(regs_to_preserve) / sizeof(regs_to_preserve[0]) - 1); i >= 0; i--) {
+        p_pos = emit_pop_reg(p_pos, x86_reg_for_m68k_reg[regs_to_preserve[i]]);
+    }
+
+    // return
     WRITE_BYTE(p_pos, OPCODE_RET);
     return p_pos;
 }
