@@ -10,46 +10,114 @@
 #include "vadm.h"
 
 
-static void log_func_name(const char *p_func_name)
+// registers used for passing arguments to functions as specified by the x86-64 ABI
+static uint8_t regs_for_func_args[] = {
+    REG_EDI,
+    REG_ESI,
+    REG_EDX,
+    REG_ECX,
+    REG_R8D,
+    REG_R9D
+};
+
+
+static uint8_t *encode_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst)
 {
-    DEBUG("calling function %s()", p_func_name);
+    // As the source register number is the number of the 680x0 register, we have to differentiate
+    // between data and address registers. If it's a data registers (number 0-7), we have to use
+    // the REX.R prefix because we use the extended registers R8D..R15D. If it's a address register,
+    // (numbers 8-15), we subtract 8 from the number because the address registers are numbered 8-15
+    // in the libcall / syscall pragmas and swap the numbers of A4 and A7 in order to map A7 to ESP
+    // (with all other registers, we can use the same numbers as the 680x0 uses).
+    // If the destination register is an extended register (R8D or R9D for the 5th or 6th argument),
+    // we have to use the REX.B prefix, otherwise we have to subtract 8 as well.
+    uint8_t prefix = 0;
+    if (src < 8) {
+        prefix |= PREFIX_REXR;
+    }
+    else {
+        src -= 8;
+        switch (src) {
+            case 4:
+                src = 7;
+                break;
+            case 7:
+                src = 4;
+                break;
+        }
+    }
+    if (dst < 8) {
+        prefix |= PREFIX_REXB;
+    }
+    else {
+        dst -= 8;
+    }
+    if (prefix != 0) {
+        WRITE_BYTE(p_pos, prefix);
+    }
+    WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
+    // MOD-REG-R/M byte with register numbers, mode = 11, source register goes into REG part,
+    // destination register into R/M part
+    WRITE_BYTE(p_pos, 0xc0 | (src << 3) | dst);
+    return p_pos;
 }
 
 
-static uint8_t create_call_to_log_func_name(uint8_t *p_code, const char *p_func_name)
+static uint8_t *create_absolute_call_to_func(uint8_t *p_pos, void (*p_func)())
 {
-    // mov rdi, p_func_name
-    // RDI holds the 1st function argument in the x86-64 ABI
-    p_code[0] = 0x48;  // REX.W prefix
-    p_code[1] = 0xbf;  // MOV opcode + register
-    *((const char **) (p_code + 2)) = p_func_name;
-    // mov rax, log_func_name
-    p_code[10] = 0x48;  // REX.W prefix
-    p_code[11] = 0xb8;  // MOV opcode + register
-    *((void (**)()) (p_code + 12)) = log_func_name;
+    // push rbp, save old value because EBP = A5 needs to be preserved in AmigaOS
+    WRITE_BYTE(p_pos, 0x55);
+    // mov rbp, rsp, save old value of RSP before aligning it
+    WRITE_BYTE(p_pos, PREFIX_REXW);
+    WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
+    WRITE_BYTE(p_pos, 0xe5);
+    // and rsp, 0xfffffffffffffff0, align RSP on a 16-byte boundary, required by the x86-64 ABI
+    // (section 3.2.2) before calling any C function, see also and https://stackoverflow.com/a/48684316
+    WRITE_BYTE(p_pos, PREFIX_REXW);
+    WRITE_BYTE(p_pos, OPCODE_AND_IMM8);
+    WRITE_BYTE(p_pos, 0xe4);
+    WRITE_BYTE(p_pos, 0xf0);
+    // mov rax, p_func
+    WRITE_BYTE(p_pos, PREFIX_REXW);
+    WRITE_BYTE(p_pos, OPCODE_MOV_IMM64_REG + 0);    // opcode + register
+    WRITE_QWORD(p_pos, (uint64_t) p_func);
     // call rax
-    p_code[20] = 0xff;  // CALL opcode
-    p_code[21] = 0xd0;  // MOD-REG-R/M byte
-    return 22;  // number of bytes written
+    WRITE_BYTE(p_pos, OPCODE_CALL_ABS64);
+    WRITE_BYTE(p_pos, 0xd0);                        // MOD-REG-R/M byte
+    // mov rsp, rbp
+    WRITE_BYTE(p_pos, PREFIX_REXW);
+    WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
+    WRITE_BYTE(p_pos, 0xec);
+    // pop rbp
+    WRITE_BYTE(p_pos, 0x5d);
+    return p_pos;
 }
 
 
-static uint8_t create_move_args_thunk(uint8_t *p_code, uint8_t *p_arg_regs)
+static uint8_t *create_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
-    // TODO: move the arguments to the correct registers according to the ABI
-}
+    // move the arguments to the correct registers according to the ABI
+    // p_arg_regs is the string taken from the libcall / syscall pragmas specifying the
+    // registers which are used for function arguments and the return value (usually R8D = D0).
+    // It contains the register number of the arguments in reverse order, with D0 = 0 and A0 = 8,
+    // the register number of the return value and the number of arguments.
+    uint8_t argnum, nargs, regnum;
+    sscanf(p_arg_regs + strlen(p_arg_regs) - 1, "%1hhx", &nargs);
+    for (argnum = 0; argnum < nargs; argnum++) {
+        sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
+        p_pos = encode_move_reg_to_reg(p_pos, regnum, regs_for_func_args[nargs - argnum - 1]);
+    }
 
+    // TODO: raise interrupt to have the supervisor process log the function name
+    // TODO: save all registers that need to be preserved in AmigaOS because they could be altered by the called function
+    //       (see Amiga Guru book, page 45 for details)
+    p_pos = create_absolute_call_to_func(p_pos, p_func);
 
-static uint8_t create_absolute_jmp_to_func(uint8_t *p_code, void (*p_func)())
-{
-    p_code[0] = OPCODE_JMP_ABS64;
-    p_code[1] = 0x25;  // MOD-REG-R/M byte
-    p_code[2] = 0x00;  // relative address where absolute address is stored => immediately after instruction
-    p_code[3] = 0x00;
-    p_code[4] = 0x00;
-    p_code[5] = 0x00;
-    *((void (**)()) &p_code[6]) = p_func;
-    return 14;  // number of bytes written
+    // move return value from RAX to the register specified by the libcall / syscall pragama (usually R8D = D0)
+    sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
+    p_pos = encode_move_reg_to_reg(p_pos, REG_EAX, regnum);
+    WRITE_BYTE(p_pos, OPCODE_RET);
+    return p_pos;
 }
 
 
@@ -64,11 +132,11 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
     // In the AmigaOS, this table contained absolute jumps to the actual functions. However,
     // as the entries in this table are only 6 bytes apart each, there is not enough room to put
     // absolute jumps to the functions with 64-bit addresses there. Therefore, we create a
-    // second table with the absolute jumps and put relative jumps with 32-bit offsets to the
-    // second one into the first one (5 bytes in x86-64 code). This second tables lives at the
-    // start of the memory block. For the functions that are not implemented, the first table
-    // contains interrupt instructions to inform the supervisor process that an unimplemented
-    // function has been called by the program.
+    // second table with the absolute jumps (and some additional code, so it's actually a thunk)
+    // and put relative jumps with 32-bit offsets to the second one into the first one (5 bytes in x86-64 code).
+    // This second tables lives at the start of the memory block. For the functions that are not
+    // implemented, the first table contains interrupt instructions to inform the supervisor process
+    // that an unimplemented function has been called by the program.
     uint8_t *p_entry_in_1st, *p_entry_in_2nd = p_lib_base;
     for (const FuncInfo *pfi = p_func_info_tbl; pfi->offset != 0; ++pfi) {
         p_entry_in_1st = p_lib_base + LIB_JUMP_TBL_SIZE - pfi->offset;
@@ -80,12 +148,10 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
         else {
             // function implemented => relative jump to 2nd table
             // offset = address of entry in 2nd table - address after JMP instruction including offset
-            DEBUG("creating entry with jump for function %s()", pfi->p_name);
+            DEBUG("creating entry with jump and thunk for function %s()", pfi->p_name);
             *p_entry_in_1st = OPCODE_JMP_REL32;
             *((int32_t *) (p_entry_in_1st + 1)) = p_entry_in_2nd - (p_entry_in_1st + 5);
-            p_entry_in_2nd += create_call_to_log_func_name(p_entry_in_2nd, pfi->p_name);
-//            p_entry_in_2nd += create_move_args_thunk(p_entry_in_2nd, pfi->arg_regs);
-            p_entry_in_2nd += create_absolute_jmp_to_func(p_entry_in_2nd, pfi->p_func);
+            p_entry_in_2nd = create_thunk_for_func(p_entry_in_2nd, pfi->p_name, pfi->p_func, pfi->p_arg_regs);
         }
     }
 }

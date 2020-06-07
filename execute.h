@@ -18,15 +18,37 @@
 #include <unistd.h>
 
 #define LIB_BASE_START_ADDRESS 0x00200000
-#define LIB_JUMP_TBL_SIZE 8192
-#define OPCODE_INT_3        0xcc
-#define OPCODE_JMP_REL32    0xe9
-#define OPCODE_JMP_ABS64    0xff
+#define LIB_JUMP_TBL_SIZE 0x10000
+
+// constants for encoding the instructions
+#define OPCODE_INT_3            0xcc
+#define OPCODE_JMP_REL32        0xe9
+#define OPCODE_JMP_ABS64        0xff
+#define OPCODE_CALL_ABS64       0xff
+#define OPCODE_MOV_REG_REG      0x89
+#define OPCODE_MOV_IMM64_REG    0xb8
+#define OPCODE_RET              0xc3
+#define OPCODE_AND_IMM8         0x83
+#define PREFIX_REXB             0x41
+#define PREFIX_REXR             0x44
+#define PREFIX_REXW             0x48
+
+// helper macros
+#define WRITE_BYTE(p_pos, val) {*p_pos++ = (val);}
+#define WRITE_DWORD(p_pos, val) {*((uint32_t *) p_pos) = (val); p_pos += 4;}
+#define WRITE_QWORD(p_pos, val) {*((uint64_t *) p_pos) = (val); p_pos += 8;}
+
+// register numbers as used by MOV instructions
+enum x86_64_registers {
+    REG_R8D, REG_R9D, REG_R10D, REG_R11D, REG_R12D, REG_R13D, REG_R14D, REG_R15D,
+    REG_EAX, REG_ECX, REG_EDX, REG_EBX, REG_ESP, REG_EBP, REG_ESI, REG_EDI
+};
 
 typedef struct
 {
     uint16_t offset;
     char     *p_name;
+    char     *p_arg_regs;
     void     (*p_func)();
 } FuncInfo;
 
