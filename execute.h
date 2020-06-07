@@ -21,6 +21,8 @@
 #define LIB_JUMP_TBL_SIZE 0x10000
 
 // constants for encoding the instructions
+#define MODE_32 0
+#define MODE_64 1
 #define OPCODE_INT_3            0xcc
 #define OPCODE_JMP_REL32        0xe9
 #define OPCODE_JMP_ABS64        0xff
@@ -40,7 +42,7 @@
 #define WRITE_DWORD(p_pos, val) {*((uint32_t *) p_pos) = (val); p_pos += 4;}
 #define WRITE_QWORD(p_pos, val) {*((uint64_t *) p_pos) = (val); p_pos += 8;}
 
-// register numbers as used by MOV instructions, 32 and 64 bit registers
+// register numbers as used in the instruction encodings, 32 and 64 bit registers
 enum x86_32_registers {
     REG_R8D, REG_R9D, REG_R10D, REG_R11D, REG_R12D, REG_R13D, REG_R14D, REG_R15D,
     REG_EAX, REG_ECX, REG_EDX, REG_EBX, REG_ESP, REG_EBP, REG_ESI, REG_EDI

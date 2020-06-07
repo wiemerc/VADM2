@@ -42,9 +42,12 @@ static uint8_t regs_for_func_args[] = {
 };
 
 
-static uint8_t *emit_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst)
+static uint8_t *emit_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst, uint8_t mode)
 {
     uint8_t prefix = 0;
+    if (mode == MODE_64) {
+        prefix |= PREFIX_REXW;
+    }
     if (src < 8) {
         // extended registers R8D..R15D
         prefix |= PREFIX_REXR;
@@ -108,27 +111,22 @@ static uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
 {
     // save old value of RBP because EBP = A5 needs to be preserved in AmigaOS
     p_pos = emit_push_reg(p_pos, REG_RBP);
-    // mov rbp, rsp, save old value of RSP before aligning it
-    WRITE_BYTE(p_pos, PREFIX_REXW);
-    WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
-    WRITE_BYTE(p_pos, 0xe5);
+    // save old value of RSP before aligning it
+    p_pos = emit_move_reg_to_reg(p_pos, REG_RSP, REG_RBP, MODE_64);
     // and rsp, 0xfffffffffffffff0, align RSP on a 16-byte boundary, required by the x86-64 ABI
     // (section 3.2.2) before calling any C function, see also and https://stackoverflow.com/a/48684316
     WRITE_BYTE(p_pos, PREFIX_REXW);
     WRITE_BYTE(p_pos, OPCODE_AND_IMM8);
-    WRITE_BYTE(p_pos, 0xe4);
-    WRITE_BYTE(p_pos, 0xf0);
+    WRITE_BYTE(p_pos, 0xe4);                        // MOD-REG-R/M byte with opcode extension and register
+    WRITE_BYTE(p_pos, 0xf0);                        // immediate value, gets sign-extended to 64 bits
     // mov rax, p_func
     WRITE_BYTE(p_pos, PREFIX_REXW);
     WRITE_BYTE(p_pos, OPCODE_MOV_IMM64_REG + 0);    // opcode + register
-    WRITE_QWORD(p_pos, (uint64_t) p_func);
+    WRITE_QWORD(p_pos, (uint64_t) p_func);          // immediate value
     // call rax
     WRITE_BYTE(p_pos, OPCODE_CALL_ABS64);
-    WRITE_BYTE(p_pos, 0xd0);                        // MOD-REG-R/M byte
-    // mov rsp, rbp
-    WRITE_BYTE(p_pos, PREFIX_REXW);
-    WRITE_BYTE(p_pos, OPCODE_MOV_REG_REG);
-    WRITE_BYTE(p_pos, 0xec);
+    WRITE_BYTE(p_pos, 0xd0);                        // MOD-REG-R/M byte with register
+    p_pos = emit_move_reg_to_reg(p_pos, REG_RBP, REG_RSP, MODE_64);
     p_pos = emit_pop_reg(p_pos, REG_RBP);
     return p_pos;
 }
@@ -145,7 +143,7 @@ static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, voi
     sscanf(p_arg_regs + strlen(p_arg_regs) - 1, "%1hhx", &nargs);
     for (argnum = 0; argnum < nargs; argnum++) {
         sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
-        p_pos = emit_move_reg_to_reg(p_pos, x86_reg_for_m68k_reg[regnum], regs_for_func_args[nargs - argnum - 1]);
+        p_pos = emit_move_reg_to_reg(p_pos, x86_reg_for_m68k_reg[regnum], regs_for_func_args[nargs - argnum - 1], MODE_32);
     }
 
     // TODO: raise interrupt to have the supervisor process log the function name
@@ -153,9 +151,9 @@ static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, voi
     //       (see Amiga Guru book, page 45 for details)
     p_pos = emit_abs_call_to_func(p_pos, p_func);
 
-    // move return value from RAX to the register specified by the libcall / syscall pragama (usually R8D = D0)
+    // move return value from EAX to the register specified by the libcall / syscall pragama (usually R8D = D0)
     sscanf(p_arg_regs + argnum, "%1hhx", &regnum);
-    p_pos = emit_move_reg_to_reg(p_pos, REG_EAX, regnum);
+    p_pos = emit_move_reg_to_reg(p_pos, REG_EAX, regnum, MODE_32);
     WRITE_BYTE(p_pos, OPCODE_RET);
     return p_pos;
 }
