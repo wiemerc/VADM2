@@ -117,7 +117,7 @@ static void x86_encode_move_mem_to_areg(uint32_t addr, uint8_t reg, uint8_t **po
     // MOD-REG-R/M byte with register number
     switch (reg) {
         // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
-        // other registers, we can use the same numbers as on the 680x0.
+        // other registers, we can use the same numbers as the 680x0 uses.
         case 4:
             reg = 7;
             break;
@@ -151,7 +151,7 @@ static void x86_encode_move_imm_to_areg(uint32_t value, uint8_t reg, uint8_t **p
     // opcode + register number as one byte
     switch (reg) {
         // In order to map A7 to ESP, we have to swap the register numbers of A4 and A7. With all
-        // other registers, we can use the same numbers as on the 680x0.
+        // other registers, we can use the same numbers as the 680x0 uses.
         case 4:
             reg = 7;
             break;
@@ -318,7 +318,6 @@ static int m68k_jsr(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
         // As the x86 doesn't support register + offset as operand for CALL, we need to
         // insert an additional ADD instruction before the CALL, but of course we have
         // to save the old value and restore it after the call.
-        // TODO save all registers that were saved by the AmigaOS because they could be altered by the called function
         write_byte(0x56, outpos);  // push rsi
         write_byte(0x81, outpos);  // add esi, <offset>
         write_byte(0xc6, outpos);
