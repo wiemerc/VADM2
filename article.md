@@ -25,15 +25,74 @@ Das AmigaOS verwendete das sogenannte [Hunk-Format](TODO) für ausführbare Prog
 
 Das Lesen der Programmdatei und das Laden des Codes und der Daten in den Speicher ist in der Routine `load_program` in der Datei `loader.c` implementiert und ebenso das Anpassen der Adressen auf Basis der Verschiebeinformationen. Dabei gibt es ein interessantes Detail. Auf dem Amiga waren alle Adressen 32 Bits breit und demzufolge natürlich auch die anzupassenden Adressen. Wie sollte ich also die 64 Bits der Adressen, an die die Hunks geladen werden, in den zur Verfügung stehenden 32 Bits unterbringen? Diese Problem habe ich so gelöst, dass die Hunks mit `mmap` an feste Adressen unterhalb der 4GB-Grenze geladen werden und so 32-Bit-Adressen entstehen (die oberen 32 Bit sind eben alle 0).
 
+
 ## Übersetzen des Codes
 
-Der Code kann nicht in einem Rutsch übersetzt werden weil die Sprungziele aufgrund der unterschiedlichen Längen der Instruktionen bei 680x0 und x86 nicht bekannt sind (Offsets / absolute Adressen sind unterschiedlich). 
+Nach dem Laden des Programms muss der Programmcode übersetzt werden. Das bedeutet, dass für jede der Instruktionen für den 680x0-Prozessor eine (oder auch mehrere) entsprechende Instruktion(en) für den x86-Prozessor erzeugt werden muss (müssen). Dabei bin ich in zwei Schritten vorgegangen. Im ersten Schritt wird die bestehende Instruktion decodiert und in ihre Bestandteile, nämlich [Opcode](https://en.wikipedia.org/wiki/Opcode), [Adressierungsart](https://en.wikipedia.org/wiki/Addressing_mode) und Operanden, zerlegt. Das ist im Prinzip auch das, was ein Prozessor tun muss bevor er eine Instruktion ausführen kann. Im zweiten Schritt wird aus diesen Bestandteilen eine neue Instruktion für den x86-Prozessor erzeugt und entsprechend codiert. Den ersten Schritt habe ich nicht vollständig selber implementiert sondern ich habe dafür Teile des Dissassemblers von Musashi verwendet. Ein Dissassembler muss nämlich die Instruktionen genauso decodieren und zerlegen, nur dass er dann die Bestandteile in lesbarer Form ausgibt. Der Dissassembler von Musashi ist so geschrieben, dass er aus dem Code eine Folge von Instruktionen erzeugt und dann für jede Instruktion mit Hilfe einer Lookup-Tabelle und dem Opcode als Index einen sogeannten Handler aufruft (wer an den Details interessiert ist kann sich die Routine _translate\_unit_ in der Datei `translate.c` zu Gemüte führen). Der nachfolgende Code zeigt den Handler für die Instruktion _move_.
 
-Neuer Ansatz:
-* Übersetzen von einzelnen [Basic Blocks](https://en.wikipedia.org/wiki/Basic_block) und Ablage des übersetzten Codes in einzelnen Speicherblöcken
-* Jeder Sprungbefehl erzeugt einen neuen Block, Sprungziel = Adresse des Blocks
-* Blöcke werden auf Stack abgelegt und rekursiv übersetzt (weil in einem Block auf dem Stack wieder ein Sprungbefehl vorkommen kann)
-* Der gleiche Ansatz könnte auch zum dynamischen Übersetzen (zur Laufzeit) verwendet werden => Verzweigungen legen die Adresse des zu übersetzenden Codes auf den Stack und rufen Funktion auf, die Interrupt erzeugt ("Branch Fault") => Kontrolle wird an den Monitor-Prozess zurückgegeben, der den Code übersetzt und die Verzweigung patcht, so dass der übersetzte Code aufgerufen wird (so ähnlich wie bei Overlays).
+    :::c
+    static int m68k_move(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpos)
+    {
+        uint8_t  src_mode_reg = m68k_opcode & 0x003f;
+        uint8_t  dst_mode_reg = (m68k_opcode & 0x0fc0) >> 6;
+        Operand  srcop, dstop;
+        int      nbytes_used = 0;
+
+        DEBUG("translating instruction MOVE");
+        if ((m68k_opcode & 0x3000) != 0x2000) {
+            ERROR("only long operation supported");
+            return -1;
+        }
+
+        nbytes_used += extract_operand(src_mode_reg, inpos, &srcop);
+        // destination operand has mode and register parts swapped
+        dst_mode_reg = ((dst_mode_reg & 0x07) << 3) | ((dst_mode_reg & 0x38) >> 3);
+        nbytes_used += extract_operand(dst_mode_reg, inpos, &dstop);
+
+        // call the appropriate function depending on the combination of source / destination operand type
+        if ((srcop.op_type      == OP_MEM)  && (dstop.op_type == OP_DREG))
+            x86_encode_move_mem_to_dreg(srcop.op_value, dstop.op_value, outpos);
+        else if ((srcop.op_type == OP_IMM)  && (dstop.op_type == OP_DREG))
+            x86_encode_move_imm_to_dreg(srcop.op_value, dstop.op_value, outpos);
+        else if ((srcop.op_type == OP_DREG) && (dstop.op_type == OP_MEM))
+            x86_encode_move_dreg_to_mem(srcop.op_value, dstop.op_value, outpos);
+        else if ((srcop.op_type == OP_DREG) && (dstop.op_type == OP_DREG))
+            x86_encode_move_dreg_to_dreg(srcop.op_value, dstop.op_value, outpos);
+        else {
+            ERROR("combination of source / destination operand types %d / %d not supported", srcop.op_type, dstop.op_type);
+            return -1;
+        }
+        return nbytes_used;
+    }
+
+Schwieriger wird es bei den Sprungbefehlen (BCC). Bei diesen Befehlen ist der Operand die Adresse im Code (absolut oder relativ), an die gesprungen werden soll (oder auch ein Offset, der zu einem Adressregister addiert wird, was dann wiederum eine Adresse ergibt). Diese Adresse, also das Sprungziel, ist aber für den übersetzten Code beim Übersetzen der Sprungbefehle noch gar nicht bekannt und *nicht* gleich der Adresse im Orginalcode. Sowohl absolute als auch relative Adressen und Offsets ändern sich beim Übersetzen. Das liegt zum einen daran, dass der übersetzte Code natürlich im Speicher an einer anderen Stelle liegt als der Orginalcode. Zum anderen sind im Allgemeinen funktional identische Instruktionen bei Motorola und Intel unterschiedlich lang, bestehen also aus einer unterschiedlichen Anzahl von Bytes. Somit unterscheidet sich das Layout des Codes im Speicher zwischen Motorola und Intel. Dieses Problem habe ich so gelöst, dass ich nicht das komplette Programm "in einem Rutsch" übersetze. Stattdessen unterteile ich das Programm in Blöcke, sogenannte _Translation Units_, und übersetze diese einzeln. Die übersetzten Blöcke werden in einem _Translation Cache_ abgelegt. Die Methode stammt nicht von mir sondern aus [diesem](https://www.vmware.com/pdf/asplos235_adams.pdf) Paper, das beschreibt, wie in VMware Binary Translation durchgeführt wird. So funktioniert diese Methode im Detail:
+
+* Die Routine _translate\_unit_ wird mit der Adresse des zu übersetzenden Code-Blocks = Translation Unit aufgerufen. Der erste Code-Block startet natürlich am Anfang des Programms.
+* _translate\_unit_ überprüft, ob die Translation Unit bereits übersetzt wurde und sich im Translation Cache befindet. Dieser Cache speichert die Zuordnung von Adressen im Originalcode zu Adressen im übersetzten Code für alle bereits übersetzten Translation Units (implementiert als binärer Suchbaum, die Routinen _tc\_get\_addr_ _tc\_put\_addr_ in der Datei `tlcache.c`). Befindet sich die Translation Unit im Cache gibt es nichts zu tun und _translate\_unit_ gibt einfach die Adresse des übersetzten Codes im Cache zurück.
+* Befindet sich die Translation Unit noch nicht im Cache muss der Code übersetzt werden. Dazu wird zuerst ein Speicherblock allokiert, in dem dann übersetzte Code abgelegt wird. Diese Blöcke sind der Einfachheit halber immer 4 KB (eine volle Speicherseite) gross und der Speicher muss logischerweise ausführbar sein. Die Adresse des Speicherblocks wird zusammen mit der Adresse der Translation Unit im Translation Cache gespeichert.
+* Wie schon oben beschrieben wird dann die Translation Unit Instruktion für Instruktion übersetzt, und zwar solange bis eine terminierende (TODO: Begriff?) Instruktion erreicht ist. Das sind Instruktionen, die eine Translation Unit abschliessen. Nachdem ich ja nur einen kleinen Teil der Instruktionen implementiert habe sind das bei VADM die Instruktionen BCC (Sprünge) und RTS (Rücksprung aus einer Routine).
+* Handelt es sich bei der terminierenden Instruktion um einen Sprungbefehl passiert folgendes.
+* _translate\_unit_ wird zweimal rekursiv aufgerufen, einmal mit dem Sprungziel als Adresse, einmal mit der Adresse der Instruktion nach dem Sprungbefehl. Damit entstehen zwei neue Translation Units.
+* Der Sprungbefehl wird mit der Adresse der ersten Translation Unit als Sprungziel übersetzt. Zusätzlich wird nach dem Sprungbefehl ein unbedingter Sprung (JMP) eingefügt, mit dem zur zweiten Translation Unit gesprungen wird. Das bedeutet, dass die aktuelle Translation Unit mit diesen beiden neuen Translation Units verknüpft wird und die Programmausführung wird mit einer dieser beiden Units fortgesetzt (mit der ersten wenn die Sprungbedingung erfüllt ist, ansonsten mit der zweiten).
+
+Die Translation Units stellen in den meisten Fällen sogenannte [Basic Blocks](https://en.wikipedia.org/wiki/Basic_block) dar. Allerdings kann es bei der beschriebenen Methode vorkommen, dass Basic Blocks entstehen, die nicht nur die erste Instruktion als "Eingang" haben sondern auch noch andere Instruktionen, so zum Beispiel bei der zweiten Translation Unit, was der strikten Definition widerspricht.
+
+Der gleiche Ansatz könnte auch zum dynamischen Übersetzen (zur Laufzeit) verwendet werden. Bei einem Sprungbefehl würden die beiden nachfolgenden TUs noch nicht gleich übersetzt werden sondern _translate\_unit_ würde erstmal nur Speicherblöcke für die TUs allokieren und in diesen eine Interrupt-Instruktion und die Adresse des zu übersetzenden Codes ablegen. Beim Sprung in eine dieser TUs würde der Interrupt die Kontrolle an den Supervisor-Prozess zurückgeben (analog zu einem Page Fault im Betriebssystem könnte man das einen "Branch Fault" nennen). Dieser würde erneut _translate\_unit_ erneut aufrufen, um die entsprechende TU zu übersetzen und dann die Programmausführung mit dieser TU fortsetzen. Das würde im Prinzip so ähnlich funktionieren wie bei einem Programm mit [Overlays](https://en.wikipedia.org/wiki/Overlay_(programming)).
+
+TODO: Register-Mapping
+Ungewöhnliche Reihenfolge bei Intel kommt daher, dass die Register (aus welchen Gründen auch immer) so durchnummeriert sind, A5 und A7 werden nach ihrer Verwendung auf EBP und ESP abgebildet.
+| Register im Motorola 680x0 | Register im Intel x86-64 | Verwendung
+| -------------------------- | ------------------------ | ----------
+| A0                         | EAX
+| A1                         | ECX
+| A2                         | EDX
+| A3                         | EBX
+| A4                         | EDI
+| A5                         | EBP                      | Frame Pointer
+| A6                         | ESI                      | Basisadressen der Bibliotheken des Amiga OS
+| A7                         | ESP                      | Stack Pointer
+
+D0 - D7 => R8D - R15D
 
 
 ## Emulation der Systemroutinen
@@ -45,6 +104,7 @@ Wie kann nun der Emulator so einen Aufruf erkennen und stattdessen eine Routine 
 Interessanter ist es natürlich wenn ein Routine implementiert ist. Das nachfolgende Bild zeigt, was in diesem Fall passiert.
 
 TODO: Bild für Aufruf einer Routine
+TODO: Beschreibung des Ablaufs
 
 There are two jump tables to create. The first is the one that is used by the programs
 that use the library to call the functions. The offsets in this table are specified in
@@ -62,27 +122,15 @@ that are not implemented, the first table contains interrupt instructions to inf
 supervisor process that an unimplemented function has been called by the program.
 
 
-## Register-Mapping
-
-Ungewöhnliche Reihenfolge bei Intel kommt daher, dass die Register (aus welchen Gründen auch immer) so durchnummeriert sind, A5 und A7 werden nach ihrer Verwendung auf EBP und ESP abgebildet.
-| Register im Motorola 680x0 | Register im Intel x86-64 | Verwendung
-| -------------------------- | ------------------------ | ----------
-| A0                         | EAX
-| A1                         | ECX
-| A2                         | EDX
-| A3                         | EBX
-| A4                         | EDI
-| A5                         | EBP                      | Frame Pointer
-| A6                         | ESI                      | Basisadressen der Bibliotheken des Amiga OS
-| A7                         | ESP                      | Stack Pointer
-
-D0 - D7 => R8D - R15D
-
-
 ## Entwicklung
 
 * Unit-Tests
 * GDB mit [Pwndbg](https://github.com/pwndbg/pwndbg)
+
+
+## Ausblick
+TODO: Alternativen zum Erzeugen des x86-Codes: LLVM, Keystone, AsmJit
+TODO: Code-Genierung über eine Tabelle / Mini-DSL
 
 
 ## Meilensteine
