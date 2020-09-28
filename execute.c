@@ -85,6 +85,34 @@ static uint8_t *emit_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst, u
 }
 
 
+static uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8_t mode)
+{
+    uint8_t prefix = 0;
+    if (mode == MODE_64) {
+        prefix |= PREFIX_REXW;
+    }
+    if (reg < 8) {
+        // extended registers R8D..R15D
+        prefix |= PREFIX_REXR;
+    }
+    else {
+        // registers EAX..EDI, also encoded as number 0..7, but without a prefix
+        reg -= 8;
+    }
+    if (prefix != 0) {
+        WRITE_BYTE(p_pos, prefix);
+    }
+    WRITE_BYTE(p_pos, OPCODE_MOV_IMM_REG + reg);
+    if (mode == MODE_64) {
+        WRITE_QWORD(p_pos, value);
+    }
+    else {
+        WRITE_DWORD(p_pos, (uint32_t) value);
+    }
+    return p_pos;
+}
+
+
 static uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg)
 {
     uint8_t prefix = 0;
@@ -126,15 +154,13 @@ static uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
     // save old value of RSP before aligning it
     p_pos = emit_move_reg_to_reg(p_pos, REG_RSP, REG_RBP, MODE_64);
     // and rsp, 0xfffffffffffffff0, align RSP on a 16-byte boundary, required by the x86-64 ABI
-    // (section 3.2.2) before calling any C function, see also and https://stackoverflow.com/a/48684316
+    // (section 3.2.2) before calling any C function, see also https://stackoverflow.com/a/48684316
     WRITE_BYTE(p_pos, PREFIX_REXW);
     WRITE_BYTE(p_pos, OPCODE_AND_IMM8);
     WRITE_BYTE(p_pos, 0xe4);                        // MOD-REG-R/M byte with opcode extension and register
     WRITE_BYTE(p_pos, 0xf0);                        // immediate value, gets sign-extended to 64 bits
     // mov rax, p_func
-    WRITE_BYTE(p_pos, PREFIX_REXW);
-    WRITE_BYTE(p_pos, OPCODE_MOV_IMM64_REG + 0);    // opcode + register
-    WRITE_QWORD(p_pos, (uint64_t) p_func);          // immediate value
+    p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_func, REG_RAX, MODE_64);
     // call rax
     WRITE_BYTE(p_pos, OPCODE_CALL_ABS64);
     WRITE_BYTE(p_pos, 0xd0);                        // MOD-REG-R/M byte with register
@@ -144,9 +170,30 @@ static uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
 }
 
 
+static uint8_t *emit_func_name_int(uint8_t *p_pos, const char *p_func_name)
+{
+    // save registers used for parameters
+    p_pos = emit_push_reg(p_pos, REG_RAX);      // type of interrupt
+    p_pos = emit_push_reg(p_pos, REG_RBX);      // length of function name
+    p_pos = emit_push_reg(p_pos, REG_RSI);      // pointer to function name
+    // move parameters
+    p_pos = emit_move_imm_to_reg(p_pos, INT_TYPE_FUNC_NAME, REG_EAX, MODE_32);
+    p_pos = emit_move_imm_to_reg(p_pos, strlen(p_func_name) + 1, REG_EBX, MODE_32);
+    p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_func_name, REG_RSI, MODE_64);
+    // raise interrupt
+    WRITE_BYTE(p_pos, OPCODE_INT_3);
+    // restore registers
+    p_pos = emit_pop_reg(p_pos, REG_RSI);
+    p_pos = emit_pop_reg(p_pos, REG_RBX);
+    p_pos = emit_pop_reg(p_pos, REG_RAX);
+    return p_pos;
+}
+
+
 static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
-    // TODO: raise interrupt to have the supervisor process log the function name
+    // raise interrupt to have the supervisor process log the function name
+    p_pos = emit_func_name_int(p_pos, p_func_name);
 
     // save all registers that need to be preserved in AmigaOS because they could be altered by the called function
     int8_t i;
@@ -154,7 +201,7 @@ static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, voi
         p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[regs_to_preserve[i]]);
     }
 
-    // move the arguments to the correct registers according to the ABI
+    // move the arguments to the correct registers according to the x86-64 ABI
     // p_arg_regs is the string taken from the libcall / syscall pragmas specifying the
     // registers which are used for function arguments and the return value (usually R8D = D0).
     // It contains the register number of the arguments in reverse order, with D0 = 0 and A0 = 8,
@@ -196,10 +243,10 @@ static void setup_jump_tables(uint8_t *p_lib_base, const FuncInfo *p_func_info_t
     // as the entries in this table are only 6 bytes apart each, there is not enough room to put
     // absolute jumps to the functions with 64-bit addresses there. Therefore, we create a
     // second table with the absolute jumps (and some additional code, so it's actually a thunk)
-    // and put relative jumps with 32-bit offsets to the second one into the first one (5 bytes in x86-64 code).
-    // This second tables lives at the start of the memory block. For the functions that are not
-    // implemented, the first table contains interrupt instructions to inform the supervisor process
-    // that an unimplemented function has been called by the program.
+    // and put relative jumps with 32-bit offsets to the second one into the first one (5 bytes
+    // in x86-64 code). This second tables lives at the start of the memory block. For the functions
+    // that are not implemented, the first table contains interrupt instructions to inform the
+    // supervisor process that an unimplemented function has been called by the program.
     uint8_t *p_entry_in_1st, *p_entry_in_2nd = p_lib_base;
     for (const FuncInfo *pfi = p_func_info_tbl; pfi->offset != 0; ++pfi) {
         p_entry_in_1st = p_lib_base + LIB_JUMP_TBL_SIZE - pfi->offset;
@@ -278,11 +325,11 @@ bool exec_program(int (*p_code)())
     // create separate process for the program
     switch ((pid = fork())) {
         case 0:     // child
-            DEBUG("child is starting...");
+            DEBUG("guest is starting...");
             // allow parent to trace us
             ptrace(PTRACE_TRACEME, 0, 0, 0);
             p_code();
-            DEBUG("child is terminating...");
+            DEBUG("guest is terminating...");
             // TODO: capture and return actual return value (in register R8D)
             exit(0);
 
@@ -295,7 +342,7 @@ bool exec_program(int (*p_code)())
                 // wait for child
                 pid = wait(&status);
                 if (WIFSTOPPED(status)) {
-                    DEBUG("child has been stopped by signal %s", strsignal(WSTOPSIG(status)));
+                    DEBUG("guest has been stopped by signal '%s'", strsignal(WSTOPSIG(status)));
                     struct user_regs_struct regs;
                     if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1) {
                         ERROR("reading registers failed: %s", strerror(errno));
@@ -303,8 +350,26 @@ bool exec_program(int (*p_code)())
                     }
 
                     if (WSTOPSIG(status) == SIGTRAP) {
-                        ERROR("program called unimplemented library routine - terminating");
-                        return false;
+                        uint8_t nbytes_read = 0;
+                        char func_name[64];
+                        switch ((uint32_t) regs.rax) {
+                            case INT_TYPE_FUNC_NAME:
+                                // copy function name from address stored in RSI, length (including NUL byte) is stored in RBX
+                                while (nbytes_read < regs.rbx) {
+                                    *((uint64_t *) (func_name + nbytes_read)) = ptrace(PTRACE_PEEKDATA, pid, regs.rsi + nbytes_read, NULL);
+                                    nbytes_read += 8;
+                                }
+                                DEBUG("guest called library function %s()", func_name);
+                                ptrace(PTRACE_CONT, pid, 0, 0);
+                                break;
+                            case INT_TYPE_BRANCH_FAULT:
+                                DEBUG("branch fault occurred - translating TU");
+                                // TODO
+                                break;
+                            default:
+                                ERROR("guest called unimplemented library function - terminating");
+                                return false;
+                        }
                     }
                     else {
                         ERROR("signal other than SIGTRAP received - terminating");
@@ -312,12 +377,12 @@ bool exec_program(int (*p_code)())
                     }
                 }
                 else if (WIFEXITED(status)) {
-                    INFO("child has exited with status %d", WEXITSTATUS(status));
+                    INFO("guest has exited with status %d", WEXITSTATUS(status));
                     return true;
                 }
                 else {
                     // shouldn't reach here...
-                    ERROR("unknown status of child: %d", status);
+                    ERROR("unknown status of guest: %d", status);
                     return false;
                 }
             }

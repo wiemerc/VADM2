@@ -23,12 +23,14 @@
 // constants for encoding the instructions
 #define MODE_32 0
 #define MODE_64 1
+#define INT_TYPE_FUNC_NAME      0xcafebabe
+#define INT_TYPE_BRANCH_FAULT   0xdeadbeef
 #define OPCODE_INT_3            0xcc
 #define OPCODE_JMP_REL32        0xe9
 #define OPCODE_JMP_ABS64        0xff
 #define OPCODE_CALL_ABS64       0xff
 #define OPCODE_MOV_REG_REG      0x89
-#define OPCODE_MOV_IMM64_REG    0xb8
+#define OPCODE_MOV_IMM_REG      0xb8
 #define OPCODE_RET              0xc3
 #define OPCODE_AND_IMM8         0x83
 #define OPCODE_PUSH_REG         0x50
