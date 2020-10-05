@@ -15,6 +15,7 @@
 
 int32_t dos_put_str(const char *p_str)
 {
+    write(1, ">>> ", 4);
     write(1, p_str, strlen(p_str));
     return 0;
 }
