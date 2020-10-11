@@ -6,6 +6,7 @@
 // 
 
 
+#include "execute.h"
 #include "translate.h"
 #include "tlcache.h"
 #include "vadm.h"
@@ -262,21 +263,21 @@ static int m68k_bcc(uint16_t m68k_opcode, const uint8_t **inpos, uint8_t **outpo
             return -1;
     }
 
-    // recursively call translate_unit() twice, once with the branch target as start address,
+    // recursively call setup_tu() twice, once with the branch target as start address,
     // once with the address of the following instruction
     // The offset of the branch target is calculated from the position after the *opcode*,
     // so we need to subtract the number of bytes used for the offset itself.
     // This method was inspired by a paper describing how VMware does binary translation:
     // https://www.vmware.com/pdf/asplos235_adams.pdf
     uint8_t *branch_taken_addr, *branch_not_taken_addr;
-    DEBUG("translating TU of branch taken");
-    if ((branch_taken_addr = translate_unit(*inpos + offset - nbytes_used, UINT32_MAX)) == NULL) {
-        ERROR("failed to translate next translation unit (branch taken)")
+    DEBUG("setting up TU of branch taken");
+    if ((branch_taken_addr = setup_tu(*inpos + offset - nbytes_used)) == NULL) {
+        ERROR("failed to set up next TU (branch taken)")
         return -1;
     }
-    DEBUG("translating TU of branch not taken");
-    if ((branch_not_taken_addr = translate_unit(*inpos, UINT32_MAX)) == NULL) {
-        ERROR("failed to translate next translation unit (branch not taken)")
+    DEBUG("setting up TU of branch not taken");
+    if ((branch_not_taken_addr = setup_tu(*inpos)) == NULL) {
+        ERROR("failed to set up next TU (branch not taken)")
         return -1;
     }
 
@@ -591,60 +592,79 @@ static void init_opc_info_lookup_tbl (const OpcodeInfo **pp_opc_info_lookup_tbl)
 
 
 //
-// translate a translation unit = block of code from Motorola 680x0 to Intel x86-64
+// set up a translation unit for later translation when it is about to execute
+// (basically a stub for the actual TU that causes a "branch fault" upon execution)
 //
-uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
+uint8_t *setup_tu(const uint8_t *p_m68k_code)
+{
+    uint8_t *p_x86_code;
+
+    // check if TU is already in the cache
+    if ((p_x86_code = tc_get_addr(gp_tlcache, p_m68k_code)) != NULL) {
+        DEBUG("TU with source address %p is already in the cache - nothing to do", p_m68k_code);
+        return p_x86_code;
+    }
+
+    // get memory block for the translated code and put mapping of source to destination address into cache
+    if ((p_x86_code = tc_get_code_block(gp_tlcache)) == NULL) {
+        ERROR("could not get memory block for translated code");
+        return NULL;
+    }
+    if (!tc_put_addr(gp_tlcache, p_m68k_code, p_x86_code)) {
+        ERROR("could not put mapping of source to destination address into cache");
+        return NULL;
+    }
+
+    // insert code necessary to generate a "branch fault"
+    uint8_t *p_pos = p_x86_code;
+    // save register used for type of interrupt
+    p_pos = emit_push_reg(p_pos, REG_RAX);
+    // set type of interrupt
+    p_pos = emit_move_imm_to_reg(p_pos, INT_TYPE_BRANCH_FAULT, REG_EAX, MODE_32);
+    // raise interrupt
+    WRITE_BYTE(p_pos, OPCODE_INT_3);
+    // write address of TU to translate
+    WRITE_QWORD(p_pos, (uint64_t) p_m68k_code);
+    return p_x86_code;
+}
+
+
+//
+// translate a translation unit from Motorola 680x0 to Intel x86-64 code
+//
+uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate, bool restore_rax)
 {
     uint8_t *p_x86_code;
     uint16_t opcode;
     int nbytes_used;
     static const OpcodeInfo *p_opc_info_lookup_tbl[0x10000];
-    static TranslationCache *p_tlcache;
     static bool initialized = false;
-    static uint8_t nest_level = 0;
 
-    DEBUG("entering translate_unit (nest level = %d)", ++nest_level);
     if (!initialized) {
         DEBUG("building opcode handler table");
         init_opc_info_lookup_tbl(p_opc_info_lookup_tbl);
-        DEBUG("initialzing translation cache");
-        if ((p_tlcache = tc_init()) == NULL) {
-            ERROR("initializing translation cache failed")
-        }
         initialized = true;
     }
 
-    // check if TU is in cache
-    if ((p_x86_code = tc_get_addr(p_tlcache, p_m68k_code)) != NULL) {
-        DEBUG("TU with source address %p is in cache - no translation necessary", p_m68k_code);
-        goto normal_exit;
-    }
-    else {
-        DEBUG("TU with source address %p not in cache - translating it", p_m68k_code);
-    }
-
-    // allocate block of memory for the translated code and put it into cache
-    // (ignoring any errors that might occur during the translation)
-    // We're wasting memory here because mmap() always maps a whole page (4KB on 64-bit Linux)
-    // but I didn't want to implement my own malloc().
-    if ((p_x86_code = mmap(NULL,
-                           MAX_CODE_BLOCK_SIZE,
-                           PROT_READ | PROT_WRITE | PROT_EXEC,
-                           MAP_ANON | MAP_PRIVATE,
-                           -1,
-                           0)) == MAP_FAILED) {
-        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
+    // get address of memory block for the translated code
+    if ((p_x86_code = tc_get_addr(gp_tlcache, p_m68k_code)) == NULL) {
+        ERROR("translate_tu() called on a TU with source address %p that is not in the cache", p_m68k_code);
         return NULL;
     }
-    tc_put_addr(p_tlcache, p_m68k_code, p_x86_code);
 
+    // restore register used for type of interrupt (not with first TU)
+    const uint8_t *p = p_m68k_code;
+    uint8_t *q = p_x86_code;
+    if (restore_rax) {
+        q = emit_pop_reg(q, REG_RAX);
+    }
+
+    DEBUG("translating TU with source address %p and destination address %p", p_m68k_code, p_x86_code);
     // translate instructions one by one until we hit a terminal instruction or
     // the number of instructions to translate reaches 0
     // TODO: check if there is still enough space in the block
     // TODO: store name of instruction in table and print it here instead of in the handlers
     // TODO: store position of mode / register byte in table and extract operand here
-    const uint8_t *p = p_m68k_code;
-    uint8_t *q = p_x86_code;
     while (ninstr_to_translate-- > 0) {
         opcode = read_word(&p);
 
@@ -661,13 +681,9 @@ uint8_t *translate_unit(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate
         }
         if (p_opc_info_lookup_tbl[opcode]->opc_terminal) {
             DEBUG("instruction is the terminal instruction in this code block");
-            goto normal_exit;
+            return p_x86_code;
         }
     }
-
-    normal_exit:
-        DEBUG("leaving translate_unit (nest level = %d)", nest_level--);
-        return p_x86_code;
 }
 
 
@@ -681,8 +697,9 @@ int main()
     uint8_t *p_code;
 
     // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
+    // TODO: rewrite without using translate_tu
     for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_OPCODE_SIZE + 1) / 2; i++) {
-        p_code = translate_unit(&testcase_tbl[i][0][1], 1);
+        p_code = translate_tu(&testcase_tbl[i][0][1], 1);
         if (memcmp(&testcase_tbl[i][1][1], p_code, testcase_tbl[i][1][0]) == 0) {
             INFO("test case #%d passed", i);
         }
