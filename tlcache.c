@@ -28,8 +28,37 @@ TranslationCache *tc_init()
         ERROR("could not allocate memory");
         return NULL;
     }
+    // We need to create a shared mapping because the guest needs to see changes
+    // made by the supervisor (when the code gets actually translated).
+    if ((p_tc->p_first_code_block = mmap(
+        NULL,
+        MAX_CODE_SIZE,
+        PROT_READ | PROT_WRITE | PROT_EXEC,
+        MAP_ANON | MAP_SHARED,
+        -1,
+        0
+    )) == MAP_FAILED) {
+        ERROR("could not create memory mapping for translated code: %s", strerror(errno));
+        return NULL;
+    }
+    p_tc->p_next_code_block = p_tc->p_first_code_block;
     return p_tc;
 }
+
+
+// get next free code block from cache
+uint8_t *tc_get_code_block(TranslationCache *p_tc)
+{
+    if ((p_tc->p_next_code_block + MAX_CODE_BLOCK_SIZE) <= (p_tc->p_first_code_block + MAX_CODE_SIZE)) {
+        p_tc->p_next_code_block += MAX_CODE_BLOCK_SIZE;
+        return p_tc->p_next_code_block - MAX_CODE_BLOCK_SIZE;
+    }
+    else {
+        ERROR("no more free code blocks available in translation cache");
+        return NULL;
+    }
+}
+
 
 // put mapping of source address to destination address into cache (creates a new mapping or overwrite an existing mapping)
 // Treating p_src_addr as 32-bit integer is safe because the loader specifically allocates
@@ -39,6 +68,8 @@ bool tc_put_addr(TranslationCache *p_tc, const uint8_t *p_src_addr, const uint8_
 {
     uint32_t curr_bit = 1 << (NUM_SOURCE_ADDR_BITS - 1);
     TranslationCacheNode **pp_curr_node = &(p_tc->p_root_node);
+
+    assert((((uint64_t) p_src_addr) & 0xffffffff00000000) == 0);
     while (curr_bit > 1) {
         pp_curr_node = ((uint32_t) p_src_addr & curr_bit) ? &((*pp_curr_node)->p_left_node) : &((*pp_curr_node)->p_right_node);
         if (*pp_curr_node == NULL) {
@@ -58,6 +89,7 @@ bool tc_put_addr(TranslationCache *p_tc, const uint8_t *p_src_addr, const uint8_
         (*pp_curr_node)->p_right_node = (TranslationCacheNode *) p_dst_addr;
     return true;
 }
+
 
 // lookup source address in the cache and return the corresponding destination address,
 // or NULL if the source address does not exist
