@@ -7,6 +7,7 @@
 
 
 #include "execute.h"
+#include "translate.h"
 #include "vadm.h"
 
 
@@ -85,7 +86,7 @@ static uint8_t *emit_move_reg_to_reg(uint8_t *p_pos, uint8_t src, uint8_t dst, u
 }
 
 
-static uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8_t mode)
+uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8_t mode)
 {
     uint8_t prefix = 0;
     if (mode == MODE_64) {
@@ -113,7 +114,7 @@ static uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg
 }
 
 
-static uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg)
+uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg)
 {
     uint8_t prefix = 0;
     if (reg < 8) {
@@ -130,7 +131,7 @@ static uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg)
 }
 
 
-static uint8_t *emit_pop_reg(uint8_t *p_pos, uint8_t reg)
+uint8_t *emit_pop_reg(uint8_t *p_pos, uint8_t reg)
 {
     uint8_t prefix = 0;
     if (reg < 8) {
@@ -348,9 +349,11 @@ bool exec_program(int (*p_code)())
                         ERROR("reading registers failed: %s", strerror(errno));
                         return false;
                     }
+                    DEBUG("current RIP of guest = %p", (uint8_t *) regs.rip);
 
                     if (WSTOPSIG(status) == SIGTRAP) {
                         uint8_t nbytes_read = 0;
+                        uint8_t *p_next_tu;
                         char func_name[64];
                         switch ((uint32_t) regs.rax) {
                             case INT_TYPE_FUNC_NAME:
@@ -363,8 +366,19 @@ bool exec_program(int (*p_code)())
                                 ptrace(PTRACE_CONT, pid, 0, 0);
                                 break;
                             case INT_TYPE_BRANCH_FAULT:
-                                DEBUG("branch fault occurred - translating TU");
-                                // TODO
+                                // translate TU and continue guest
+                                DEBUG("branch fault occurred");
+                                if ((p_next_tu = translate_tu(*((uint8_t **) regs.rip), UINT32_MAX, true)) == NULL) {
+                                    ERROR("translating next TU failed");
+                                    return false;
+                                }
+                                regs.rip = (uint64_t) p_next_tu;
+                                if (ptrace(PTRACE_SETREGS, pid, NULL, &regs) == -1) {
+                                    ERROR("setting RIP failed: %s", strerror(errno));
+                                    return false;
+                                }
+                                DEBUG("continuing guest with next TU at address %p", (uint8_t *) regs.rip);
+                                ptrace(PTRACE_CONT, pid, 0, 0);
                                 break;
                             default:
                                 ERROR("guest called unimplemented library function - terminating");

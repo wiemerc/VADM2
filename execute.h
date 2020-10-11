@@ -74,4 +74,9 @@ typedef struct
 __attribute__ ((visibility("default"))) uint8_t *load_library(const char *p_lib_name);
 bool exec_program(int (*p_code)());
 
+// TODO: move functions below to "library" codegen.c and use them in translate.c as well
+uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg);
+uint8_t *emit_pop_reg(uint8_t *p_pos, uint8_t reg);
+uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8_t mode);
+
 #endif  // EXECUTE_H_INCLUDED
