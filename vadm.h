@@ -7,16 +7,21 @@
 #ifndef VADM_H_INCLUDED
 #define VADM_H_INCLUDED
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 // logging macros
-// TODO: add file name / line number
-#define DEBUG(fmt, ...) {fputs("DEBUG | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
-#define INFO(fmt, ...)  {fputs("INFO  | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
-#define WARN(fmt, ...)  {fputs("WARN  | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
-#define ERROR(fmt, ...) {fputs("ERROR | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
-#define CRIT(fmt, ...)  {fputs("CRIT  | ", stdout); printf(fmt, ##__VA_ARGS__); fputs("\n", stdout);}
+void logmsg(const char *fname, int lineno, const char *func, const char *level, const char *fmtstr, ...);
+#ifdef VERBOSE_LOGGING
+    #define DEBUG(fmtstr, ...) {logmsg(__FILE__, __LINE__, __func__, "DEBUG", fmtstr, ##__VA_ARGS__);}
+#else
+    #define DEBUG(fmtstr, ...) {}
+#endif
+#define INFO(fmtstr, ...) {logmsg(__FILE__, __LINE__, __func__, "INFO", fmtstr, ##__VA_ARGS__);}
+#define WARN(fmtstr, ...) {logmsg(__FILE__, __LINE__, __func__, "WARN", fmtstr, ##__VA_ARGS__);}
+#define ERROR(fmtstr, ...) {logmsg(__FILE__, __LINE__, __func__, "ERROR", fmtstr, ##__VA_ARGS__);}
+#define CRIT(fmtstr, ...) {logmsg(__FILE__, __LINE__, __func__, "CRIT", fmtstr, ##__VA_ARGS__);}
 
 // base address of Exec library, the only absolute address in the AmigaOS, can't use 4 (the value
 // in the AmigaOS) because it has to be a page boundary as we create a memory mapping there

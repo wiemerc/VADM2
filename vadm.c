@@ -16,6 +16,20 @@
 TranslationCache *gp_tlcache;
 
 
+void logmsg(const char *fname, int lineno, const char *func, const char *level, const char *fmtstr, ...)
+{
+    char location[32];
+    snprintf(location, 32, "%s:%d", fname, lineno);
+    printf("%-20s | %-20s | %-5s | ", location, func, level);
+
+    va_list args;
+    va_start(args, fmtstr);
+    vprintf(fmtstr, args);
+    va_end(args);
+    printf("\n");
+}
+
+
 int main(int argc, char **argv)
 {
     uint8_t *p_m68k_code_addr, *p_x86_code_addr;
