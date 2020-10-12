@@ -26,6 +26,7 @@
 #define INT_TYPE_FUNC_NAME      0xcafebabe
 #define INT_TYPE_BRANCH_FAULT   0xdeadbeef
 #define OPCODE_INT_3            0xcc
+#define OPCODE_JMP_REL8         0xeb
 #define OPCODE_JMP_REL32        0xe9
 #define OPCODE_JMP_ABS64        0xff
 #define OPCODE_CALL_ABS64       0xff
@@ -35,6 +36,7 @@
 #define OPCODE_AND_IMM8         0x83
 #define OPCODE_PUSH_REG         0x50
 #define OPCODE_POP_REG          0x58
+#define OPCODE_NOP              0x90
 #define PREFIX_REXB             0x41
 #define PREFIX_REXR             0x44
 #define PREFIX_REXW             0x48
@@ -74,9 +76,15 @@ typedef struct
 __attribute__ ((visibility("default"))) uint8_t *load_library(const char *p_lib_name);
 bool exec_program(int (*p_code)());
 
-// TODO: move functions below to "library" codegen.c and use them in translate.c as well
+// TODO: move functions below to "library" codegen.c and use them in translate.c as well,
+//       with the same signature as the routines in translate.c = position gets incremented by the routines
 uint8_t *emit_push_reg(uint8_t *p_pos, uint8_t reg);
 uint8_t *emit_pop_reg(uint8_t *p_pos, uint8_t reg);
 uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8_t mode);
+uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)());
+uint8_t *emit_save_amigaos_registers(uint8_t *p_pos);
+uint8_t *emit_restore_amigaos_registers(uint8_t *p_pos);
+uint8_t *emit_save_all_registers(uint8_t *p_pos);
+uint8_t *emit_restore_all_registers(uint8_t *p_pos);
 
 #endif  // EXECUTE_H_INCLUDED

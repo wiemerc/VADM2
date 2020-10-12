@@ -16,8 +16,7 @@
 #include <sys/mman.h>
 
 // constants
-#define MAX_CODE_SIZE   65536
-#define MAX_CODE_BLOCK_SIZE 256
+#define START_OF_TRANSLATED_CODE 128
 #define MAX_OPCODE_SIZE 8
 
 // structure describing an opcode
@@ -48,7 +47,7 @@ typedef struct
 
 // prototypes
 uint8_t *setup_tu(const uint8_t *p_m68k_code);
-uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate);
+uint8_t *translate_tu(const uint8_t *p_m68k_code);
 
 // test case table, will be used if translate.c is compiled as standalone program
 #if TEST

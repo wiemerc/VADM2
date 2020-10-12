@@ -593,7 +593,7 @@ static void init_opc_info_lookup_tbl (const OpcodeInfo **pp_opc_info_lookup_tbl)
 
 //
 // set up a translation unit for later translation when it is about to execute
-// (basically a stub for the actual TU that causes a "branch fault" upon execution)
+// (basically a stub for the actual TU that calls translate_tu() upon execution)
 //
 uint8_t *setup_tu(const uint8_t *p_m68k_code)
 {
@@ -615,22 +615,27 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
         return NULL;
     }
 
-    // insert code necessary to generate a "branch fault"
-    // TODO: instead of the branch fault, generate code to 
-    // - save registers
-    // - call translate_TU() directly
-    // - restore registers
-    // - jump to generated code at a fixed offset from the start address
-    // => call function emit_stub_for_TU()
+    // generate code to call translate_tu()
+    // We fill the memory block with NOPs which get overwritten by the generated code below,
+    // starting at position 0 in the block, and the translated code, starting at position
+    // START_OF_TRANSLATED_CODE (128). This way, we don't need to jump to the translated code
+    // but we create a NOP sled instead. We just need to make sure the code below needed
+    // to call translate_tu() never exceeds 128 bytes (currently 56 bytes).
+    memset(p_x86_code, OPCODE_NOP, MAX_CODE_BLOCK_SIZE);
     uint8_t *p_pos = p_x86_code;
-    // save register used for type of interrupt
-    p_pos = emit_push_reg(p_pos, REG_RAX);
-    // set type of interrupt
-    p_pos = emit_move_imm_to_reg(p_pos, INT_TYPE_BRANCH_FAULT, REG_EAX, MODE_32);
-    // raise interrupt
-    WRITE_BYTE(p_pos, OPCODE_INT_3);
-    // write address of TU to translate
-    WRITE_QWORD(p_pos, (uint64_t) p_m68k_code);
+    // save all registers that needed to be preserved in AmigaOS because they could be
+    // altered by translate_tu(). In addition we also need to save A0/A1 and D0/D1.
+    // This is because Amiga programs of course don't expect a function call to happen
+    // upon the execution of a branch instruction and thus expect registers to be
+    // preserved across branch instructions (the call to translate_tu() needs to be
+    // completely transparent to the Amiga program).
+    p_pos = emit_save_all_registers(p_pos);
+    // call translate_tu() with address of this TU as argument
+    // TODO: check return value
+    p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_m68k_code, REG_RDI, MODE_64);
+    p_pos = emit_abs_call_to_func(p_pos, (void (*)()) translate_tu);
+    // restore registers
+    p_pos = emit_restore_all_registers(p_pos);
     return p_x86_code;
 }
 
@@ -638,7 +643,7 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
 //
 // translate a translation unit from Motorola 680x0 to Intel x86-64 code
 //
-uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
+uint8_t *translate_tu(const uint8_t *p_m68k_code)
 {
     uint8_t *p_x86_code;
     uint16_t opcode;
@@ -658,20 +663,16 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
         return NULL;
     }
 
-    // restore register used for type of interrupt
-    // TODO: restore registers directly instead of generating code for it and jump to generated
-    //       code in the stub calling us, once we've got rid of the interrupt
-    const uint8_t *p = p_m68k_code;
-    uint8_t *q = p_x86_code;
-    q = emit_pop_reg(q, REG_RAX);
-
     DEBUG("translating TU with source address %p and destination address %p", p_m68k_code, p_x86_code);
-    // translate instructions one by one until we hit a terminal instruction or
-    // the number of instructions to translate reaches 0
-    // TODO: check if there is still enough space in the block
+    // translate instructions one by one until we hit a terminal instruction
+    // We need to put the translated code after the stub that called us, that is
+    // at position START_OF_TRANSLATED_CODE in the memory block.
+    // TODO: check if there is still enough space in the memory block
     // TODO: store name of instruction in table and print it here instead of in the handlers
     // TODO: store position of mode / register byte in table and extract operand here
-    while (ninstr_to_translate-- > 0) {
+    const uint8_t *p = p_m68k_code;
+    uint8_t *q = p_x86_code + START_OF_TRANSLATED_CODE;
+    while (true) {
         opcode = read_word(&p);
 
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
@@ -686,7 +687,12 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
             return NULL;
         }
         if (p_opc_info_lookup_tbl[opcode]->opc_terminal) {
-            DEBUG("instruction is the terminal instruction in this code block");
+            DEBUG("instruction is the terminal instruction in this TU - continuing execution of guest");
+            // insert jump to the translated code at the beginning of the memory block to
+            // keep us from being called again if this TU gets executed more than once
+            q = p_x86_code;
+            WRITE_BYTE(q, OPCODE_JMP_REL8);
+            WRITE_BYTE(q, 0x7e);
             return p_x86_code;
         }
     }
