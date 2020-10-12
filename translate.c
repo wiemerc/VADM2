@@ -616,6 +616,12 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
     }
 
     // insert code necessary to generate a "branch fault"
+    // TODO: instead of the branch fault, generate code to 
+    // - save registers
+    // - call translate_TU() directly
+    // - restore registers
+    // - jump to generated code at a fixed offset from the start address
+    // => call function emit_stub_for_TU()
     uint8_t *p_pos = p_x86_code;
     // save register used for type of interrupt
     p_pos = emit_push_reg(p_pos, REG_RAX);
@@ -632,7 +638,7 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
 //
 // translate a translation unit from Motorola 680x0 to Intel x86-64 code
 //
-uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate, bool restore_rax)
+uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate)
 {
     uint8_t *p_x86_code;
     uint16_t opcode;
@@ -652,12 +658,12 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate, 
         return NULL;
     }
 
-    // restore register used for type of interrupt (not with first TU)
+    // restore register used for type of interrupt
+    // TODO: restore registers directly instead of generating code for it and jump to generated
+    //       code in the stub calling us, once we've got rid of the interrupt
     const uint8_t *p = p_m68k_code;
     uint8_t *q = p_x86_code;
-    if (restore_rax) {
-        q = emit_pop_reg(q, REG_RAX);
-    }
+    q = emit_pop_reg(q, REG_RAX);
 
     DEBUG("translating TU with source address %p and destination address %p", p_m68k_code, p_x86_code);
     // translate instructions one by one until we hit a terminal instruction or

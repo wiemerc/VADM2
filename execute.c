@@ -368,7 +368,7 @@ bool exec_program(int (*p_code)())
                             case INT_TYPE_BRANCH_FAULT:
                                 // translate TU and continue guest
                                 DEBUG("branch fault occurred");
-                                if ((p_next_tu = translate_tu(*((uint8_t **) regs.rip), UINT32_MAX, true)) == NULL) {
+                                if ((p_next_tu = translate_tu(*((uint8_t **) regs.rip), UINT32_MAX)) == NULL) {
                                     ERROR("translating next TU failed");
                                     return false;
                                 }

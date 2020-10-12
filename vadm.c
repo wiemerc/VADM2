@@ -44,16 +44,12 @@ int main(int argc, char **argv)
         ERROR("loading program failed");
         return 1;
     }
-    INFO("initializing translation cache and translating first TU...");
+    INFO("initializing translation cache and setting up first TU...");
     if ((gp_tlcache = tc_init()) == NULL) {
         ERROR("initializing translation cache failed")
     }
     if ((p_x86_code_addr = setup_tu(p_m68k_code_addr)) == NULL) {
         ERROR("setting up TU failed");
-        return 1;
-    }
-    if ((translate_tu(p_m68k_code_addr, UINT32_MAX, false)) == NULL) {
-        ERROR("translating first TU failed");
         return 1;
     }
     INFO("executing program...");

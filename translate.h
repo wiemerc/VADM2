@@ -48,7 +48,7 @@ typedef struct
 
 // prototypes
 uint8_t *setup_tu(const uint8_t *p_m68k_code);
-uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate, bool restore_rax);
+uint8_t *translate_tu(const uint8_t *p_m68k_code, uint32_t ninstr_to_translate);
 
 // test case table, will be used if translate.c is compiled as standalone program
 #if TEST
