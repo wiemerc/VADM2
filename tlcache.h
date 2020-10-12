@@ -15,7 +15,7 @@
 
 // constants
 #define MAX_CODE_SIZE   65536
-#define MAX_CODE_BLOCK_SIZE 256
+#define MAX_CODE_BLOCK_SIZE 1024
 #ifdef TEST
     #define NUM_SOURCE_ADDR_BITS 3
 #else
