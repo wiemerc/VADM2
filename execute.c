@@ -198,12 +198,14 @@ uint8_t *emit_save_all_registers(uint8_t *p_pos)
     p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[REG_D1]);
     p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[REG_A0]);
     p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[REG_A1]);
+    WRITE_BYTE(p_pos, OPCODE_PUSHFQ);
     return p_pos;
 }
 
 
 uint8_t *emit_restore_all_registers(uint8_t *p_pos)
 {
+    WRITE_BYTE(p_pos, OPCODE_POPFQ);
     p_pos = emit_pop_reg(p_pos, x86_reg_for_m68k_reg[REG_A1]);
     p_pos = emit_pop_reg(p_pos, x86_reg_for_m68k_reg[REG_A0]);
     p_pos = emit_pop_reg(p_pos, x86_reg_for_m68k_reg[REG_D1]);
@@ -235,7 +237,7 @@ static uint8_t *emit_func_name_int(uint8_t *p_pos, const char *p_func_name)
 
 static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
-    // raise interrupt to have the supervisor process log the function name
+    // TODO: log the function name
 //    p_pos = emit_func_name_int(p_pos, p_func_name);
 
     // save all registers that need to be preserved in AmigaOS because they could be altered by the called function
@@ -361,6 +363,7 @@ bool exec_program(int (*p_code)())
     #pragma GCC diagnostic pop
 
     // create separate process for the program
+    // TODO: get rid of the ptrace / interrupt stuff and run the Amiga program in the same process
     switch ((pid = fork())) {
         case 0:     // child
             DEBUG("guest is starting...");

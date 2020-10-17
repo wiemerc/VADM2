@@ -36,6 +36,8 @@
 #define OPCODE_AND_IMM8         0x83
 #define OPCODE_PUSH_REG         0x50
 #define OPCODE_POP_REG          0x58
+#define OPCODE_PUSHFQ           0x9c
+#define OPCODE_POPFQ            0x9d
 #define OPCODE_NOP              0x90
 #define PREFIX_REXB             0x41
 #define PREFIX_REXR             0x44
