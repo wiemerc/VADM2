@@ -354,7 +354,7 @@ bool exec_program(int (*p_code)())
     uint32_t *p_abs_exec_base;
     if ((p_exec_base = load_library("libs/libexec.so")) == NULL) {
         ERROR("could not load Exec library");
-        return 1;
+        return false;
     }
     if ((p_abs_exec_base = mmap((void *) ABS_EXEC_BASE,
                            4,
@@ -363,19 +363,16 @@ bool exec_program(int (*p_code)())
                            -1,
                            0)) == MAP_FAILED) {
         ERROR("could not create memory mapping for ABS_EXEC_BASE: %s", strerror(errno));
-        return NULL;
+        return false;
     }
     #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
     *p_abs_exec_base = (uint32_t) p_exec_base;
     #pragma GCC diagnostic pop
 
     // create separate process for the program
-    // TODO: get rid of the ptrace / interrupt stuff and run the Amiga program in the same process
     switch ((pid = fork())) {
         case 0:     // child
             DEBUG("guest is starting...");
-            // allow parent to trace us
-//            ptrace(PTRACE_TRACEME, 0, 0, 0);
             p_code();
             DEBUG("guest is terminating...");
             // TODO: capture and return actual return value (in register R8D)
@@ -389,48 +386,12 @@ bool exec_program(int (*p_code)())
             while (true) {
                 // wait for child
                 pid = wait(&status);
-                if (WIFSTOPPED(status)) {
-                    DEBUG("guest has been stopped by signal '%s'", strsignal(WSTOPSIG(status)));
-                    struct user_regs_struct regs;
-                    if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1) {
-                        ERROR("reading registers failed: %s", strerror(errno));
-                        return false;
-                    }
-                    DEBUG("current RIP of guest = %p", (uint8_t *) regs.rip);
+                if (WIFSIGNALED(status)) {
+                    DEBUG("guest has been terminated by signal '%s'", strsignal(WTERMSIG(status)));
 
-                    if (WSTOPSIG(status) == SIGTRAP) {
-                        uint8_t nbytes_read = 0;
-                        uint8_t *p_next_tu;
-                        char func_name[64];
-                        switch ((uint32_t) regs.rax) {
-                            case INT_TYPE_FUNC_NAME:
-                                // copy function name from address stored in RSI, length (including NUL byte) is stored in RBX
-                                while (nbytes_read < regs.rbx) {
-                                    *((uint64_t *) (func_name + nbytes_read)) = ptrace(PTRACE_PEEKDATA, pid, regs.rsi + nbytes_read, NULL);
-                                    nbytes_read += 8;
-                                }
-                                DEBUG("guest called library function %s()", func_name);
-                                ptrace(PTRACE_CONT, pid, 0, 0);
-                                break;
-                            case INT_TYPE_BRANCH_FAULT:
-                                // translate TU and continue guest
-                                DEBUG("branch fault occurred");
-                                if ((p_next_tu = translate_tu(*((uint8_t **) regs.rip))) == NULL) {
-                                    ERROR("translating next TU failed");
-                                    return false;
-                                }
-                                regs.rip = (uint64_t) p_next_tu;
-                                if (ptrace(PTRACE_SETREGS, pid, NULL, &regs) == -1) {
-                                    ERROR("setting RIP failed: %s", strerror(errno));
-                                    return false;
-                                }
-                                DEBUG("continuing guest with next TU at address %p", (uint8_t *) regs.rip);
-                                ptrace(PTRACE_CONT, pid, 0, 0);
-                                break;
-                            default:
-                                ERROR("guest called unimplemented library function - terminating");
-                                return false;
-                        }
+                    if (WTERMSIG(status) == SIGTRAP) {
+                        ERROR("guest called unimplemented library function - terminating");
+                        return false;
                     }
                     else {
                         ERROR("signal other than SIGTRAP received - terminating");
@@ -442,13 +403,13 @@ bool exec_program(int (*p_code)())
                     return true;
                 }
                 else {
-                    // shouldn't reach here...
+                    // shouldn't arrive here...
                     ERROR("unknown status of guest: %d", status);
                     return false;
                 }
             }
     }
-    // shouldn't reach here...
+    // shouldn't arrive here...
     return false;
 }
 

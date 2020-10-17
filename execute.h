@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
-#include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
 #include <unistd.h>
