@@ -86,7 +86,7 @@ uint8_t *emit_move_imm_to_reg(uint8_t *p_pos, uint64_t value, uint8_t reg, uint8
 uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)());
 uint8_t *emit_save_amigaos_registers(uint8_t *p_pos);
 uint8_t *emit_restore_amigaos_registers(uint8_t *p_pos);
-uint8_t *emit_save_all_registers(uint8_t *p_pos);
-uint8_t *emit_restore_all_registers(uint8_t *p_pos);
+uint8_t *emit_save_program_state(uint8_t *p_pos);
+uint8_t *emit_restore_program_state(uint8_t *p_pos);
 
 #endif  // EXECUTE_H_INCLUDED

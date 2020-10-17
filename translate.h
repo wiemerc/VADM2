@@ -52,7 +52,8 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code);
 // test case table, will be used if translate.c is compiled as standalone program
 #if TEST
 static const uint8_t testcase_tbl[][2][MAX_OPCODE_SIZE + 1] = {
-    // Motorola opcode, prefixed with number of bytes      // Intel opcode, prefixed with number of bytes
+    // Motorola instruction encoding,                      Intel instruction encoding,
+    // prefixed with number of bytes                       prefixed with number of bytes
     {{4, 0x2c, 0x78, 0x00, 0x04},						   {7, 0x8b, 0x34, 0x25, 0x04, 0x00, 0x00, 0x00}},	        // movea.l 0x0004, a6 => mov esi, [0x00000004]
     {{6, 0x28, 0x7c, 0xde, 0xad, 0xbe, 0xef},			   {5, 0xbf, 0xef, 0xbe, 0xad, 0xde}},	                    // movea.l #0xdeadbeef, a4 => mov edi, 0xdeadbeef
     {{6, 0x2e, 0x79, 0xde, 0xad, 0xbe, 0xef},			   {7, 0x8b, 0x24, 0x25, 0xef, 0xbe, 0xad, 0xde}},	        // movea.l 0xdeadbeef, a7 => mov esp, [0xdeadbeef]

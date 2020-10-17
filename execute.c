@@ -171,6 +171,10 @@ uint8_t *emit_abs_call_to_func(uint8_t *p_pos, void (*p_func)())
 }
 
 
+//
+// The following two functions save / restore all registers that needed to be preserved
+// across a function call in AmigaOS (see amigaos_regs_to_preserve for the list).
+//
 uint8_t *emit_save_amigaos_registers(uint8_t *p_pos)
 {
     int8_t i;
@@ -191,7 +195,12 @@ uint8_t *emit_restore_amigaos_registers(uint8_t *p_pos)
 }
 
 
-uint8_t *emit_save_all_registers(uint8_t *p_pos)
+//
+// The following two functions make a call to a function completely transparent to the Amiga
+// program by saving / restoring all registers that needed to be preserved across a function
+// call in AmigaOS, and in addition D0/D1, A0/A1 and RFLAGS.
+//
+uint8_t *emit_save_program_state(uint8_t *p_pos)
 {
     p_pos = emit_save_amigaos_registers(p_pos);
     p_pos = emit_push_reg(p_pos, x86_reg_for_m68k_reg[REG_D0]);
@@ -203,7 +212,7 @@ uint8_t *emit_save_all_registers(uint8_t *p_pos)
 }
 
 
-uint8_t *emit_restore_all_registers(uint8_t *p_pos)
+uint8_t *emit_restore_program_state(uint8_t *p_pos)
 {
     WRITE_BYTE(p_pos, OPCODE_POPFQ);
     p_pos = emit_pop_reg(p_pos, x86_reg_for_m68k_reg[REG_A1]);
@@ -215,30 +224,28 @@ uint8_t *emit_restore_all_registers(uint8_t *p_pos)
 }
 
 
-static uint8_t *emit_func_name_int(uint8_t *p_pos, const char *p_func_name)
+static void log_func_name(const char *p_func_name)
 {
-    // save registers used for parameters
-    p_pos = emit_push_reg(p_pos, REG_RAX);      // type of interrupt
-    p_pos = emit_push_reg(p_pos, REG_RBX);      // length of function name
-    p_pos = emit_push_reg(p_pos, REG_RSI);      // pointer to function name
-    // move parameters
-    p_pos = emit_move_imm_to_reg(p_pos, INT_TYPE_FUNC_NAME, REG_EAX, MODE_32);
-    p_pos = emit_move_imm_to_reg(p_pos, strlen(p_func_name) + 1, REG_EBX, MODE_32);
-    p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_func_name, REG_RSI, MODE_64);
-    // raise interrupt
-    WRITE_BYTE(p_pos, OPCODE_INT_3);
-    // restore registers
-    p_pos = emit_pop_reg(p_pos, REG_RSI);
-    p_pos = emit_pop_reg(p_pos, REG_RBX);
-    p_pos = emit_pop_reg(p_pos, REG_RAX);
+    DEBUG("guest called library function %s()", p_func_name);
+}
+
+
+static uint8_t *emit_call_to_log_func_name(uint8_t *p_pos, const char *p_func_name)
+{
+    // move pointer to function name to register for first function argument = RDI
+    p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_func_name, REG_RDI, MODE_64);
+    // call function to log the name
+    p_pos = emit_abs_call_to_func(p_pos, (void (*)()) log_func_name);
     return p_pos;
 }
 
 
 static uint8_t *emit_thunk_for_func(uint8_t *p_pos, const char *p_func_name, void (*p_func)(), const char *p_arg_regs)
 {
-    // TODO: log the function name
-//    p_pos = emit_func_name_int(p_pos, p_func_name);
+    // log the function name
+    p_pos = emit_save_program_state(p_pos);
+    p_pos = emit_call_to_log_func_name(p_pos, p_func_name);
+    p_pos = emit_restore_program_state(p_pos);
 
     // save all registers that need to be preserved in AmigaOS because they could be altered by the called function
     p_pos = emit_save_amigaos_registers(p_pos);

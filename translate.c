@@ -623,19 +623,18 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
     // to call translate_tu() never exceeds 128 bytes (currently 56 bytes).
     memset(p_x86_code, OPCODE_NOP, MAX_CODE_BLOCK_SIZE);
     uint8_t *p_pos = p_x86_code;
-    // save all registers that needed to be preserved in AmigaOS because they could be
-    // altered by translate_tu(). In addition we also need to save A0/A1 and D0/D1.
-    // This is because Amiga programs of course don't expect a function call to happen
-    // upon the execution of a branch instruction and thus expect registers to be
-    // preserved across branch instructions (the call to translate_tu() needs to be
-    // completely transparent to the Amiga program).
-    p_pos = emit_save_all_registers(p_pos);
+    // Amiga programs of course don't expect a function call to happen upon the execution
+    // of a branch instruction and thus expect registers and flags to be preserved across
+    // branch instructions (the call to translate_tu() needs to be completely transparent
+    // to the Amiga program). emit_save_program_state() ensures just that by saving all
+    // registers that needed to be preserved in AmigaOS, and in addition also A0/A1, D0/D1
+    // and RFLAGS.
+    p_pos = emit_save_program_state(p_pos);
     // call translate_tu() with address of this TU as argument
     // TODO: check return value
     p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_m68k_code, REG_RDI, MODE_64);
     p_pos = emit_abs_call_to_func(p_pos, (void (*)()) translate_tu);
-    // restore registers
-    p_pos = emit_restore_all_registers(p_pos);
+    p_pos = emit_restore_program_state(p_pos);
     return p_x86_code;
 }
 
