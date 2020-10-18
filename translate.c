@@ -645,11 +645,9 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
 //
 uint8_t *translate_tu(const uint8_t *p_m68k_code)
 {
-    uint8_t *p_x86_code;
-    uint16_t opcode;
-    int nbytes_used;
     static const OpcodeInfo *p_opc_info_lookup_tbl[0x10000];
     static bool initialized = false;
+    uint8_t *p_x86_code;
 
     if (!initialized) {
         DEBUG("building opcode handler table");
@@ -672,9 +670,10 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code)
     // TODO: store position of mode / register byte in table and extract operand here
     const uint8_t *p = p_m68k_code;
     uint8_t *q = p_x86_code + START_OF_TRANSLATED_CODE;
+    uint16_t opcode;
+    int nbytes_used;
     while (true) {
         opcode = read_word(&p);
-
         DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
         if (p_opc_info_lookup_tbl[opcode])
             nbytes_used = p_opc_info_lookup_tbl[opcode]->opc_handler(opcode, &p, &q);
@@ -706,13 +705,33 @@ uint8_t *translate_tu(const uint8_t *p_m68k_code)
 int main()
 {
     int retval = 0;
-    uint8_t *p_code;
+    static const OpcodeInfo *p_opc_info_lookup_tbl[0x10000];
+    uint8_t x86_code[MAX_INSTRUCTION_SIZE];
+    const uint8_t *p;
+    uint8_t *q;
+    uint16_t opcode;
+    int nbytes_used;
 
-    // test case table consists of one row per test case with two colums (Motorola and Intel opcodes) each
-    // TODO: rewrite without using translate_tu
-    for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_OPCODE_SIZE + 1) / 2; i++) {
-        p_code = translate_tu(&testcase_tbl[i][0][1], 1);
-        if (memcmp(&testcase_tbl[i][1][1], p_code, testcase_tbl[i][1][0]) == 0) {
+    DEBUG("building opcode handler table");
+    init_opc_info_lookup_tbl(p_opc_info_lookup_tbl);
+
+    // test case table consists of one row per test case with two colums (Motorola and Intel instructions) each
+    for (unsigned int i = 0; i < sizeof(testcase_tbl) / (MAX_INSTRUCTION_SIZE + 1) / 2; i++) {
+        p = &testcase_tbl[i][0][1];
+        q = x86_code;
+        opcode = read_word(&p);
+        DEBUG("looking up opcode 0x%04x in opcode handler table", opcode);
+        if (p_opc_info_lookup_tbl[opcode])
+            nbytes_used = p_opc_info_lookup_tbl[opcode]->opc_handler(opcode, &p, &q);
+        else {
+            ERROR("no handler found for opcode 0x%04x", opcode);
+            return 1;
+        }
+        if (nbytes_used == -1) {
+            ERROR("could not decode instruction at position %p", p - 2);
+            return 1;
+        }
+        if (memcmp(&testcase_tbl[i][1][1], x86_code, testcase_tbl[i][1][0]) == 0) {
             INFO("test case #%d passed", i);
         }
         else {
