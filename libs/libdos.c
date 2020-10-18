@@ -23,6 +23,7 @@ int32_t dos_put_str(const char *p_str)
 
 // lines below have been generated with the following command:
 // grep libcall /opt/m68k-amigaos//m68k-amigaos/ndk/include/pragmas/dos_pragmas.h | perl -nale 'print "    {0x$F[4], \"$F[3]\", NULL},"'
+#pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 FuncInfo g_func_info_tbl[] = {
     {0x1e, "Open", "2102", NULL},
     {0x24, "Close", "101", NULL},
@@ -189,3 +190,4 @@ FuncInfo g_func_info_tbl[] = {
     {0x3e4, "SetOwner", "2102", NULL},
     {0, NULL, NULL, NULL}
 };
+#pragma GCC diagnostic pop

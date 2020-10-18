@@ -9,7 +9,7 @@
 CC      := gcc
 CFLAGS  := -I/opt/m68k-amigaos//m68k-amigaos/ndk/include -Wall -Wextra -g -fPIC
 LDFLAGS := -shared
-LDLIBS  := -lbsd
+LDLIBS  := -lbsd	# for strlcat() and strlcpy()
 
 .PHONY: all clean
 

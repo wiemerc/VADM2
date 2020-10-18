@@ -40,6 +40,7 @@ void exec_close_library(uint8_t *p_lib_base)
 
 // lines below have been generated with the following command:
 // grep syscall /opt/m68k-amigaos//m68k-amigaos/ndk/include/pragmas/exec_pragmas.h | perl -nale 'print "    {0x$F[3], \"$F[2]\", \"$F[4]\", NULL},"'
+#pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 FuncInfo g_func_info_tbl[] = {
     {0x1e, "Supervisor", "D01", NULL},
     {0x48, "InitCode", "1002", NULL},
@@ -168,3 +169,4 @@ FuncInfo g_func_info_tbl[] = {
     {0x38a, "AVL_FindLastNode", "801", NULL},
     {0, NULL, NULL, NULL}
 };
+#pragma GCC diagnostic pop

@@ -634,7 +634,9 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
     // call translate_tu() with address of this TU as argument
     // TODO: check return value
     p_pos = emit_move_imm_to_reg(p_pos, (uint64_t) p_m68k_code, REG_RDI, MODE_64);
+#pragma GCC diagnostic ignored "-Wcast-function-type"
     p_pos = emit_abs_call_to_func(p_pos, (void (*)()) translate_tu);
+#pragma GCC diagnostic pop
     p_pos = emit_restore_program_state(p_pos);
     return p_x86_code;
 }
