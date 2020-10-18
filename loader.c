@@ -8,6 +8,7 @@
 
 #include "loader.h"
 #include "vadm.h"
+#include "util.h"
 
 
 //
@@ -145,6 +146,7 @@ bool load_program(
                         ERROR("code hunk is too large to append RTS");
                         return false;
                     }
+                    // TODO: append RTS or is this no longer necessary?
                     *code_address = hunk_addresses[hunk_num];
                     *code_size    = ndwords * 4;
                 }

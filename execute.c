@@ -9,6 +9,7 @@
 #include "execute.h"
 #include "translate.h"
 #include "vadm.h"
+#include "util.h"
 
 
 // mapping of 680x0 to x86 registers, the 680x0 registers are numbered from 0 to 15 consecutive (D0..D7 and A0..A7)

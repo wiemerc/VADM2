@@ -10,6 +10,7 @@
 #include "translate.h"
 #include "tlcache.h"
 #include "vadm.h"
+#include "util.h"
 
 
 // TODO: adapt to naming convention

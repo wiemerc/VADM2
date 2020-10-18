@@ -8,6 +8,10 @@
 
 #include "tlcache.h"
 #include "vadm.h"
+#include "util.h"
+
+
+TranslationCache *gp_tlcache;
 
 
 // The cache is implemented as a binary search tree and stores the mapping of source addresses
