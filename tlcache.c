@@ -32,13 +32,11 @@ TranslationCache *tc_init()
         ERROR("could not allocate memory");
         return NULL;
     }
-    // We need to create a shared mapping because the guest needs to see changes
-    // made by the supervisor (when the code gets actually translated).
     if ((p_tc->p_first_code_block = mmap(
         NULL,
         MAX_CODE_SIZE,
         PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_ANON | MAP_SHARED,
+        MAP_ANON | MAP_PRIVATE,
         -1,
         0
     )) == MAP_FAILED) {
