@@ -13,11 +13,12 @@
 #include "util.h"
 
 
-// TODO: adapt to naming convention
+// TODO: adapt to naming convention (prefix pointers with p_ and pp_)
 
 //
 // utility routines
 //
+// TODO: use macros from codegen.c
 
 // read one word from buffer and advance current position pointer
 static uint16_t read_word(const uint8_t **pos)
@@ -110,6 +111,7 @@ static int extract_operand(uint8_t mode_reg, const uint8_t **pos, Operand *op)
 // explanation of REX prefix: https://www-user.tu-chemnitz.de/~heha/viewchm.php/hs/x86.chm/x64.htm
 // Intel 64 and IA-32 Architectures Software Developer’s Manual, Volume 2, Instruction Set Reference, Appendix B, Instruction Formats And Encodings
 //
+// TODO: use emit_* routines from codegen.c
 
 // move memory to address register (EAX..EDX, ESI, EDI, EPP, ESP)
 static void x86_encode_move_mem_to_areg(uint32_t addr, uint8_t reg, uint8_t **pos)
@@ -622,6 +624,8 @@ uint8_t *setup_tu(const uint8_t *p_m68k_code)
     // START_OF_TRANSLATED_CODE (128). This way, we don't need to jump to the translated code
     // but we create a NOP sled instead. We just need to make sure the code below needed
     // to call translate_tu() never exceeds 128 bytes (currently 56 bytes).
+    // TODO: Make the emit_* functions return the number of bytes generated. Then we can
+    //       calculate the total number of bytes and use a relative jump instead of the NOP sled
     memset(p_x86_code, OPCODE_NOP, MAX_CODE_BLOCK_SIZE);
     uint8_t *p_pos = p_x86_code;
     // Amiga programs of course don't expect a function call to happen upon the execution
